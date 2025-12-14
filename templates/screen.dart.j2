@@ -49,11 +49,17 @@ class _{{ class_name }}State extends State<{{ class_name }}> {
       );
     }
 
-    {# ---- ScrollView ラップ（必要時のみ） ---- #}
+    {# ---- ScrollView ラップ（必要時のみ、Stackの場合は外に配置） ---- #}
     {% if use_scrollview %}
+    {% if options.has_stack_background %}
+    {# Stackがある場合、Stack全体をSingleChildScrollViewの外に配置 ---- #}
+    {# 前景コンテンツのみをSingleChildScrollViewでラップする必要があるが、 ---- #}
+    {# テンプレート側では難しいため、Stack全体をSingleChildScrollViewの外に配置 ---- #}
+    {% else %}
     content = SingleChildScrollView(
       child: content,
     );
+    {% endif %}
     {% endif %}
 
     {# ---- キーボードで隠れにくくする＋外タップでDismiss ---- #}
@@ -67,6 +73,24 @@ class _{{ class_name }}State extends State<{{ class_name }}> {
 
     {# ---- Scaffold で包む（基本推奨） ---- #}
     {% if use_scaffold %}
+    {% if options.scaffold_bg_image %}
+    {# 背景画像がある場合はStack構造を使用（背景を背面に、UIを前景に） #}
+    content = Stack(
+      children: [
+        Positioned.fill(
+          child: Image.asset(
+            '{{ options.scaffold_bg_image }}',
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) => Container(
+              color: Colors.grey[300],
+              child: Icon(Icons.image, size: 80, color: Colors.grey[600]),
+            ),
+          ),
+        ),
+        content,
+      ],
+    );
+    {% endif %}
     return Scaffold(
       {% if add_appbar %}appBar: AppBar(title: Text('{{ appbar_title }}')), {% endif %}
       {% if options.scaffold_bg_color %}
@@ -74,9 +98,9 @@ class _{{ class_name }}State extends State<{{ class_name }}> {
       {% endif %}
       body: SafeArea(
         child: Padding(
-          {# ソフトキーボード分の下余白。スクロール無し画面でも被りにくい #}
-          padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-          child: content,
+        {# ソフトキーボード分の下余白。スクロール無し画面でも被りにくい #}
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: content,
         ),
       ),
     );
@@ -102,9 +126,15 @@ class _{{ class_name }}State extends State<{{ class_name }}> {
     }
 
     {% if use_scrollview %}
+    {% if options.has_stack_background %}
+    {# Stackがある場合、Stack全体をSingleChildScrollViewの外に配置 ---- #}
+    {# 前景コンテンツのみをSingleChildScrollViewでラップする必要があるが、 ---- #}
+    {# テンプレート側では難しいため、Stack全体をSingleChildScrollViewの外に配置 ---- #}
+    {% else %}
     content = SingleChildScrollView(
       child: content,
     );
+    {% endif %}
     {% endif %}
 
     {% if keyboard_dismiss %}
@@ -116,6 +146,24 @@ class _{{ class_name }}State extends State<{{ class_name }}> {
     {% endif %}
 
     {% if use_scaffold %}
+    {% if options.scaffold_bg_image %}
+    {# 背景画像がある場合はStack構造を使用（背景を背面に、UIを前景に） #}
+    content = Stack(
+      children: [
+        Positioned.fill(
+          child: Image.asset(
+            '{{ options.scaffold_bg_image }}',
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) => Container(
+              color: Colors.grey[300],
+              child: Icon(Icons.image, size: 80, color: Colors.grey[600]),
+            ),
+          ),
+        ),
+        content,
+      ],
+    );
+    {% endif %}
     return Scaffold(
       {% if add_appbar %}appBar: AppBar(title: Text('{{ appbar_title }}')), {% endif %}
       {% if options.scaffold_bg_color %}
@@ -123,8 +171,8 @@ class _{{ class_name }}State extends State<{{ class_name }}> {
       {% endif %}
       body: SafeArea(
         child: Padding(
-          padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-          child: content,
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: content,
         ),
       ),
     );

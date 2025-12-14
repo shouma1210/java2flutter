@@ -175,7 +175,7 @@ def _java_ast_block_to_dart(block: Block, known_imports: Set[str]) -> str:
     for stmt in block.statements:
         if isinstance(stmt, MethodCall):
             target = stmt.target or ""
-            args = stmt.args.strip()
+            args = (stmt.args or "").strip()
             
             # if(isTaskRoot())のような特殊なケースをチェック（targetがifで始まる場合）
             if target.startswith("if") and "isTaskRoot" in target:
@@ -244,7 +244,7 @@ def _java_ast_block_to_dart(block: Block, known_imports: Set[str]) -> str:
             for sub_stmt in stmt.then_block.statements:
                 if isinstance(sub_stmt, MethodCall):
                     target = sub_stmt.target or ""
-                    args = sub_stmt.args or ""
+                    args = (sub_stmt.args or "").strip()
                     if "startActivity" in target:
                         activity_class = _extract_activity_class_from_intent(args)
                         if activity_class:
@@ -288,7 +288,7 @@ def _java_ast_block_to_dart(block: Block, known_imports: Set[str]) -> str:
                 if inner.strip():
                     for ln in inner.splitlines():
                         if ln.strip():  # 空行はスキップ
-                            lines.extend("  " + ln for ln in inner.splitlines())
+                            lines.append("  " + ln)
                 lines.append("}")
         elif isinstance(stmt, RawStmt):
             txt = stmt.text.strip()
@@ -610,14 +610,21 @@ def generate_dart_code(
     # 4) 統合 IR → logic_map / handlers_code
     logic_map, handlers_code, known_imports = _build_logic_and_handlers(unified, class_name)
 
-    # 5) ルート要素の背景色を取得（translate_nodeの前に処理）
+    # 5) ルート要素の背景色/背景画像を取得（translate_nodeの前に処理）
     root_bg_color = None
+    root_bg_image = None
     root_attrs = unified.xml_ir.get("attrs") or {}
     root_bg_raw = root_attrs.get("background")
     if root_bg_raw and resolver:
         # drawableとして解決を試みる
         drawable_path = resolver.resolve_drawable_path(root_bg_raw)
-        if not drawable_path:
+        if drawable_path:
+            # 背景画像の場合
+            from ..utils import get_asset_path_from_drawable
+            root_bg_image = get_asset_path_from_drawable(drawable_path)
+            # 背景画像属性を一時的に削除（translate_nodeの後で復元する必要はない）
+            unified.xml_ir["attrs"] = {k: v for k, v in root_attrs.items() if k != "background"}
+        else:
             # 色として解決を試みる
             resolved = resolver.resolve(root_bg_raw) or root_bg_raw
             root_bg_color = ResourceResolver.android_color_to_flutter(resolved)
@@ -628,6 +635,9 @@ def generate_dart_code(
 
     # 6) UI ツリーを Dart の Widget 式に変換
     widget_tree = translate_node(unified.xml_ir, unified.resolver, logic_map=logic_map)
+
+    # 6.5) Stackが含まれているかチェック（背景画像がある場合）
+    has_stack_background = "Stack(children:" in widget_tree or "Stack(children: [" in widget_tree
 
     # 7) TextField の検出と StatefulWidget の判定
     has_text_field = _has_text_field(unified.xml_ir)
@@ -661,6 +671,8 @@ def generate_dart_code(
             "stretch": True,
             "imports": imports_list,
             "scaffold_bg_color": root_bg_color,  # ルート要素の背景色
+            "scaffold_bg_image": root_bg_image,  # ルート要素の背景画像
+            "has_stack_background": has_stack_background,  # Stackが含まれているか
         },
     )
 

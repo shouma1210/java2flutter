@@ -158,10 +158,9 @@ def apply_layout_modifiers(
             # 背景画像の場合
             asset_path = get_asset_path_from_drawable(drawable_path)
             if asset_path:
+                # SingleChildScrollViewと衝突しないように、width/heightを指定しない
                 widget = (
                     f"Container("
-                    f"width: double.infinity, "
-                    f"height: double.infinity, "
                     f"decoration: BoxDecoration("
                     f"image: DecorationImage("
                     f"image: AssetImage('{asset_path}'), "
@@ -180,12 +179,12 @@ def apply_layout_modifiers(
             else:
                 resolved = bg_raw
             color_hex = ResourceResolver.android_color_to_flutter(resolved)
-            if color_hex:
+        if color_hex:
                 # 背景色をContainerでラップする
                 # ただし、ルートレベルの背景色はScaffoldのbackgroundColorに設定する方が良い
                 # ここでは単純にContainerでラップする（SizedBox.expandは使わない）
                 widget = f"Container(color: Color({color_hex}), child: {widget})"
-            else:
+        else:
                 # 解決できない場合は TODO コメント
                 widget = f"/* TODO: background {bg_raw} */ {widget}"
 
