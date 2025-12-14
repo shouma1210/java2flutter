@@ -38,10 +38,11 @@ class _{{ class_name }}State extends State<{{ class_name }}> {
 
   @override
   Widget build(BuildContext context) {
+    print("FestoraLogin build called");
     Widget content = {{ widget_tree }};
 
     {# ---- 余白（画面外側） ---- #}
-    if ({{ page_padding }} > 0) {
+    if ({{ page_padding }} > 0.0) {
       content = Padding(
         padding: const EdgeInsets.all({{ page_padding }}),
         child: content,
@@ -50,28 +51,13 @@ class _{{ class_name }}State extends State<{{ class_name }}> {
 
     {# ---- ScrollView ラップ（必要時のみ） ---- #}
     {% if use_scrollview %}
-    content = LayoutBuilder(
-      builder: (context, constraints) {
-        return SingleChildScrollView(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              minWidth: double.infinity,
-              {# 画面一杯に広がっても塗り潰しにならないよう minHeight = viewport #}
-              minHeight: constraints.maxHeight,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: {{ 'CrossAxisAlignment.stretch' if stretch else 'CrossAxisAlignment.start' }},
-              children: [content],
-            ),
-          ),
-        );
-      },
+    content = SingleChildScrollView(
+      child: content,
     );
     {% endif %}
 
     {# ---- キーボードで隠れにくくする＋外タップでDismiss ---- #}
-    if ({{ keyboard_dismiss }}) {
+    if ({{ 'true' if keyboard_dismiss else 'false' }}) {
       content = GestureDetector(
         behavior: HitTestBehavior.translucent,
         onTap: () => FocusScope.of(context).unfocus(),
@@ -79,19 +65,19 @@ class _{{ class_name }}State extends State<{{ class_name }}> {
       );
     }
 
-    {# ---- SafeArea ---- #}
-    {% if use_safearea %}
-    content = SafeArea(child: content);
-    {% endif %}
-
     {# ---- Scaffold で包む（基本推奨） ---- #}
     {% if use_scaffold %}
     return Scaffold(
       {% if add_appbar %}appBar: AppBar(title: Text('{{ appbar_title }}')), {% endif %}
-      body: Padding(
-        {# ソフトキーボード分の下余白。スクロール無し画面でも被りにくい #}
-        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-        child: content,
+      {% if options.scaffold_bg_color %}
+      backgroundColor: const Color({{ options.scaffold_bg_color }}),
+      {% endif %}
+      body: SafeArea(
+        child: Padding(
+          {# ソフトキーボード分の下余白。スクロール無し画面でも被りにくい #}
+          padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+          child: content,
+        ),
       ),
     );
     {% else %}
@@ -105,9 +91,10 @@ class _{{ class_name }}State extends State<{{ class_name }}> {
   {% else %} {# ------------ Stateless 版 ------------ #}
   @override
   Widget build(BuildContext context) {
+    print("FestoraLogin build called");
     Widget content = {{ widget_tree }};
 
-    if ({{ page_padding }} > 0) {
+    if ({{ page_padding }} > 0.0) {
       content = Padding(
         padding: const EdgeInsets.all({{ page_padding }}),
         child: content,
@@ -115,22 +102,8 @@ class _{{ class_name }}State extends State<{{ class_name }}> {
     }
 
     {% if use_scrollview %}
-    content = LayoutBuilder(
-      builder: (context, constraints) {
-        return SingleChildScrollView(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              minWidth: double.infinity,
-              minHeight: constraints.maxHeight,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: {{ 'CrossAxisAlignment.stretch' if stretch else 'CrossAxisAlignment.start' }},
-              children: [content],
-            ),
-          ),
-        );
-      },
+    content = SingleChildScrollView(
+      child: content,
     );
     {% endif %}
 
@@ -142,16 +115,17 @@ class _{{ class_name }}State extends State<{{ class_name }}> {
     );
     {% endif %}
 
-    {% if use_safearea %}
-    content = SafeArea(child: content);
-    {% endif %}
-
     {% if use_scaffold %}
     return Scaffold(
       {% if add_appbar %}appBar: AppBar(title: Text('{{ appbar_title }}')), {% endif %}
-      body: Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-        child: content,
+      {% if options.scaffold_bg_color %}
+      backgroundColor: const Color({{ options.scaffold_bg_color }}),
+      {% endif %}
+      body: SafeArea(
+        child: Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+          child: content,
+        ),
       ),
     );
     {% else %}

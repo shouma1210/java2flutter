@@ -21,18 +21,30 @@ def _wrap_match_parent_for_linear(child_code: str, child_attrs: dict, parent_ori
     return code
 
 def _axes_from_gravity_for_linear(gravity: str, orientation: str):
-    """gravity を Flutter の main/cross axis に落とす。シンプルに center/horizontal/vertical を扱う。"""
+    """gravity を Flutter の main/cross axis に落とす。シンプルに center/horizontal/vertical を扱う。
+    
+    注意: MainAxisAlignment.center は SingleChildScrollView と衝突する可能性があるため、
+    スクロール可能なコンテンツでは start を使用する。
+    """
     g = (gravity or "").lower()
     main = "MainAxisAlignment.start"
-    cross = "CrossAxisAlignment.start"
+    # crossAxisAlignment は stretch をデフォルトにする（TextField などの幅を広げるため）
+    cross = "CrossAxisAlignment.stretch"
 
+    # MainAxisAlignment.center は SingleChildScrollView と衝突するため、start を使用
+    # 中央寄せが必要な場合は、個別の要素を Center でラップする
     if "center" in g:
         if orientation == "vertical":
-            main = "MainAxisAlignment.center" if ("center_vertical" in g or "center" in g) else main
-            cross = "CrossAxisAlignment.center" if ("center_horizontal" in g or "center" in g) else cross
+            # main は start のまま（スクロールビューとの互換性のため）
+            # cross は stretch のまま（TextField などの幅を広げるため）
+            # 個別の要素（ロゴなど）を Center でラップする必要がある場合は、後で処理
+            pass
         else:
-            main = "MainAxisAlignment.center" if ("center_horizontal" in g or "center" in g) else main
-            cross = "CrossAxisAlignment.center" if ("center_vertical" in g or "center" in g) else cross
+            # horizontal の場合
+            if "center_horizontal" in g or "center" in g:
+                main = "MainAxisAlignment.center"
+            if "center_vertical" in g or "center" in g:
+                cross = "CrossAxisAlignment.center"
 
     if "end" in g or "right" in g:
         if orientation == "vertical":
@@ -72,11 +84,16 @@ def translate_layout(node, resolver, logic_map=None):
         main, cross = _axes_from_gravity_for_linear(attrs.get("gravity", ""), orientation)
 
         if orientation == "horizontal":
+            # RowではcrossAxisAlignment.stretchは問題を起こしやすいため、centerを使用
+            if cross == "CrossAxisAlignment.stretch":
+                cross = "CrossAxisAlignment.center"
             body = (
                 f"Row(mainAxisAlignment: {main}, crossAxisAlignment: {cross}, children: [\n"
                 f"{indent(children_joined)}\n])"
             )
         else:
+            # SingleChildScrollView内ではmainAxisSizeを指定しない（デフォルトのmaxを使用）
+            # これにより、Columnが正しい高さを持つようになる
             body = (
                 f"Column(mainAxisAlignment: {main}, crossAxisAlignment: {cross}, children: [\n"
                 f"{indent(children_joined)}\n])"
@@ -98,11 +115,13 @@ def translate_layout(node, resolver, logic_map=None):
     # ========== ConstraintLayout ==========
     if t == "ConstraintLayout":
         dart_children = [translate_node(ch, resolver, logic_map=logic_map) for ch in children]
+        # SingleChildScrollView内ではmainAxisSizeを指定しない（デフォルトのmaxを使用）
         body = f"Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [\n{indent(',\n'.join(dart_children))}\n])"
         return apply_layout_modifiers(body, attrs, resolver)
 
     # fallback
     dart_children = [translate_node(ch, resolver, logic_map=logic_map) for ch in children]
+    # SingleChildScrollView内ではmainAxisSizeを指定しない（デフォルトのmaxを使用）
     body = f"Column(children: [\n{indent(',\n'.join(dart_children))}\n])"
     return apply_layout_modifiers(body, attrs, resolver)
 
@@ -114,7 +133,8 @@ def translate_node(node: dict, resolver, logic_map=None):
     # === 追加: ConstraintLayout を Column にフォールバック ===
     if t in ("androidx.constraintlayout.widget.ConstraintLayout", "ConstraintLayout"):
         child_widgets = [translate_node(ch, resolver, logic_map=logic_map) for ch in children]
-        body = "Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [\n  " \
+        # SingleChildScrollView内ではmainAxisSizeを指定しない（デフォルトのmaxを使用）
+        body = "Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [\n  " \
                + ",\n  ".join(child_widgets) + "\n])"
         return apply_layout_modifiers(body, attrs, resolver)
     
