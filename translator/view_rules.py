@@ -69,8 +69,8 @@ def _text_style(attrs: dict, resolver: ResourceResolver | None) -> str:
                 size_px = ResourceResolver.parse_dimen_to_px(size_raw)
             except Exception:
                 size_px = None
-        if size_px:
-            parts.append(f"fontSize: {float(size_px):.1f}")
+            if size_px:
+                parts.append(f"fontSize: {float(size_px):.1f}")
 
     # textColorの処理（@color/xxx または直接 #RRGGBB 形式）
     color_raw = attrs.get("textColor")
@@ -230,9 +230,23 @@ def translate_view(
                     elif "fitEnd" in scale_type:
                         box_fit = "BoxFit.fitHeight"
                     
+                    # 背景画像として使われる可能性があるかどうかを判定（match_parentの場合）
+                    width = (attrs.get("layout_width") or "").lower()
+                    height = (attrs.get("layout_height") or "").lower()
+                    is_background = width in ("match_parent", "fill_parent") and height in ("match_parent", "fill_parent")
+                    
+                    # 背景画像の場合は、errorBuilderを画面全体をカバーするように設定
+                    if is_background:
+                        # 背景画像の場合、errorBuilderのContainerからwidth/heightを削除
+                        # Positioned.fillがサイズを決定するため
+                        error_builder = "errorBuilder: (context, error, stackTrace) => Container(color: Colors.grey[300], child: Icon(Icons.image, size: 80, color: Colors.grey[600]))"
+                    else:
+                        # 通常のImageViewの場合、固定サイズのerrorBuilderを使用
+                        error_builder = "errorBuilder: (context, error, stackTrace) => Container(width: 180, height: 180, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(8)), child: Icon(Icons.image, size: 80, color: Colors.grey[600]))"
+                    
                     # アセット画像を使用（アセットが存在しない場合のエラーを避けるため、プレースホルダーも用意）
                     # 実際のアプリでは、アセットを追加するか、ネットワーク画像を使用する
-                    body = f"Image.asset('{asset_path}', fit: {box_fit}, errorBuilder: (context, error, stackTrace) => Container(width: 180, height: 180, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(8)), child: Icon(Icons.image, size: 80, color: Colors.grey[600])))"
+                    body = f"Image.asset('{asset_path}', fit: {box_fit}, {error_builder})"
                 else:
                     # アセットパスが解決できない場合、プレースホルダーを表示
                     body = "Center(child: Container(width: 180, height: 180, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(8)), child: Icon(Icons.image, size: 80, color: Colors.grey[600])))"
