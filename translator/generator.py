@@ -9,7 +9,9 @@ from ..parser.xml_parser import parse_layout_xml
 from ..parser.resource_resolver import ResourceResolver
 from ..parser.java_parser import (
     extract_click_handlers,
+    extract_fragments,
     ClickHandlerIR,
+    FragmentIR,
     Block,
     MethodCall,
     IfStmt,
@@ -35,6 +37,7 @@ class UnifiedScreenIR:
     xml_ir: dict
     resolver: Optional[ResourceResolver]
     handlers_by_id: Dict[str, ClickHandlerIR]
+    fragments_by_id: Dict[str, FragmentIR]
     backgrounds: Dict[str, str]
 
 
@@ -599,11 +602,19 @@ def generate_dart_code(
     if java_root and os.path.exists(java_root):
         xml_ids = _collect_ids(xml_ir)
         handlers_by_id = extract_click_handlers(java_root, xml_ids)
+    
+    # 3.5) Fragment検出
+    fragments_by_id: Dict[str, FragmentIR] = {}
+    if java_root and os.path.exists(java_root):
+        layout_dir = os.path.dirname(xml_path)
+        fragments_by_id = extract_fragments(java_root, layout_dir, xml_ids)
+
 
     unified = UnifiedScreenIR(
         xml_ir=xml_ir,
         resolver=resolver,
         handlers_by_id=handlers_by_id,
+        fragments_by_id=fragments_by_id,
         backgrounds=applied_backgrounds,
     )
 
@@ -634,7 +645,7 @@ def generate_dart_code(
                 unified.xml_ir["attrs"] = {k: v for k, v in root_attrs.items() if k != "background"}
 
     # 6) UI ツリーを Dart の Widget 式に変換
-    widget_tree = translate_node(unified.xml_ir, unified.resolver, logic_map=logic_map)
+    widget_tree = translate_node(unified.xml_ir, unified.resolver, logic_map=logic_map, fragments_by_id=unified.fragments_by_id, layout_dir=layout_dir, values_dir=values_dir)
 
     # 6.5) Stackが含まれているかチェック（背景画像がある場合）
     has_stack_background = "Stack(children:" in widget_tree or "Stack(children: [" in widget_tree
