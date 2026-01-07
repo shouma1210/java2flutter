@@ -101,6 +101,29 @@ def translate_view(
     attrs = node.get("attrs") or {}
     children = node.get("children") or []
 
+    # ================== RadioButton ==================
+# ================== RadioButton ==================
+    if t == "RadioButton":
+        xml_id = _id_base(attrs.get("id", ""))
+        handler_name = _find_handler(logic_map, xml_id)
+        
+        text_raw = attrs.get("text", "")
+        text = resolver.resolve(text_raw) if resolver else text_raw
+        text = text or ""
+        
+        checked = (attrs.get("checked") or "").lower() == "true"
+        
+        # RadioButtonはRadioListTileで表現
+        if text:
+            body = f'RadioListTile(value: "{xml_id}", groupValue: null, onChanged: (value) => {{ setState(() => {{ /* TODO: update state */ }}); }}, title: Text("{escape_dart(text)}"))'
+        else:
+            body = f'Radio(value: "{xml_id}", groupValue: null, onChanged: (value) => {{ setState(() => {{ /* TODO: update state */ }}); }})'
+        
+        if handler_name:
+            body = body.replace('onChanged: (value) => { setState(() => { /* TODO: update state */ }); }', 
+                              f'onChanged: (value) => {{ setState(() => {{ /* TODO: update state */ }}); {handler_name}(context); }}')
+        
+        return apply_layout_modifiers(body, attrs, resolver)
     # ================== Button 系 ==================
     if t.lower().endswith("button") or t == "Button":
         xml_id = _id_base(attrs.get("id", ""))
@@ -167,6 +190,9 @@ def translate_view(
         text_raw = attrs.get("text", "")
         text = resolver.resolve(text_raw) if resolver else text_raw
         text = text or ""
+        # text属性がない場合、idがあればプレースホルダーを表示
+        if not text and xml_id:
+            text = f"[{xml_id}]"  # プレースホルダー
 
         body = f'Text("{escape_dart(text)}"{_text_style(attrs, resolver)})'
 
@@ -194,16 +220,191 @@ def translate_view(
         hint = resolver.resolve(hint_raw) if resolver else hint_raw
         hint = hint or ""
 
+        # android:text属性を取得
+        text_raw = attrs.get("text", "")
+        initial_text = resolver.resolve(text_raw) if resolver else text_raw
+        initial_text = initial_text or ""
+
         input_type = (attrs.get("inputType") or "").lower()
         obscure = "textpassword" in input_type or "password" in hint.lower()
+        is_multiline = "textmultiline" in input_type or "multiline" in input_type
+        
+        # inputTypeに基づいてキーボードタイプを設定
+        keyboard_type = "TextInputType.text"
+        if "numberdecimal" in input_type:
+            keyboard_type = "TextInputType.numberWithOptions(decimal: true)"
+        elif "number" in input_type:
+            keyboard_type = "TextInputType.number"
+        elif "phone" in input_type:
+            keyboard_type = "TextInputType.phone"
+        elif "email" in input_type:
+            keyboard_type = "TextInputType.emailAddress"
+        elif is_multiline:
+            keyboard_type = "TextInputType.multiline"
 
-        dec = f'InputDecoration(hintText: "{escape_dart(hint)}")' if hint else "null"
-        parts = [f"decoration: {dec}"]
+        # decorationを改善（borderを追加）
+        if hint:
+            dec = f'InputDecoration(hintText: "{escape_dart(hint)}", border: OutlineInputBorder())'
+        else:
+            dec = 'InputDecoration(border: OutlineInputBorder())'
+        
+        parts = [f"decoration: {dec}", f"keyboardType: {keyboard_type}"]
         if obscure:
             parts.append("obscureText: true")
+        
+        # 複数行対応
+        if is_multiline:
+            parts.append("maxLines: null")
+        
+        # 初期テキストを設定
+        if initial_text:
+            parts.append(f'controller: TextEditingController(text: "{escape_dart(initial_text)}")')
 
         body = f"TextField({', '.join(parts)})"
         return apply_layout_modifiers(body, attrs, resolver)
+
+    
+    
+    # ================== AutoCompleteTextView ==================
+    if t == "AutoCompleteTextView":
+        # AutoCompleteTextViewはTextField + Autocompleteで表現
+        hint_raw = attrs.get("hint", "")
+        hint = resolver.resolve(hint_raw) if resolver else hint_raw
+        hint = hint or ""
+        
+        text_raw = attrs.get("text", "")
+        initial_text = resolver.resolve(text_raw) if resolver else text_raw
+        initial_text = initial_text or ""
+        
+        completion_threshold = attrs.get("completionThreshold", "3")
+        
+        dec = f'InputDecoration(hintText: "{escape_dart(hint)}", border: OutlineInputBorder())' if hint else 'InputDecoration(border: OutlineInputBorder())'
+        
+        parts = [f"decoration: {dec}", "keyboardType: TextInputType.text"]
+        
+        if initial_text:
+            parts.append(f'controller: TextEditingController(text: "{escape_dart(initial_text)}")')
+        
+        # Autocomplete機能はTextField + Autocomplete widgetで実現
+        # ただし、シンプルな実装としてTextFieldのみを生成（Autocompleteは後で手動で追加可能）
+        body = f"TextField({', '.join(parts)})"
+        return apply_layout_modifiers(body, attrs, resolver)
+
+    # ================== Switch ==================
+    if t == "Switch":
+        xml_id = _id_base(attrs.get("id", ""))
+        handler_name = _find_handler(logic_map, xml_id)
+        
+        # Switchのテキスト
+        text_raw = attrs.get("text", "")
+        text = resolver.resolve(text_raw) if resolver else text_raw
+        text = text or ""
+        
+        # Switchのchecked状態（デフォルトはfalse）
+        checked = (attrs.get("checked") or "").lower() == "true"
+        
+        # Switchウィジェットを生成
+        if text:
+            body = f'Switch(value: {str(checked).lower()}, onChanged: (value) => {{ setState(() => {{ /* TODO: update state */ }}); }}, title: Text("{escape_dart(text)}"))'
+        else:
+            body = f'Switch(value: {str(checked).lower()}, onChanged: (value) => {{ setState(() => {{ /* TODO: update state */ }}); }})'
+        
+        # ハンドラがある場合は追加
+        if handler_name:
+            # SwitchのonChangedにハンドラを追加
+            body = body.replace('onChanged: (value) => { setState(() => { /* TODO: update state */ }); }', 
+                              f'onChanged: (value) => {{ setState(() => {{ /* TODO: update state */ }}); {handler_name}(context); }}')
+        
+        return apply_layout_modifiers(body, attrs, resolver)
+
+    
+    
+    # ================== Spinner ==================
+    if t == "Spinner":
+        xml_id = _id_base(attrs.get("id", ""))
+        handler_name = _find_handler(logic_map, xml_id)
+        
+        # SpinnerはDropdownButtonFormFieldで表現
+        # 初期値はnull（選択されていない状態）
+        body = 'DropdownButtonFormField<String>(value: null, items: [DropdownMenuItem(value: "item1", child: Text("Item 1")), DropdownMenuItem(value: "item2", child: Text("Item 2"))], onChanged: (value) => { /* TODO: update state */ })'
+        
+        if handler_name:
+            body = body.replace('onChanged: (value) => { /* TODO: update state */ }', 
+                              f'onChanged: (value) => {{ /* TODO: update state */ {handler_name}(context); }}')
+        
+        return apply_layout_modifiers(body, attrs, resolver)
+
+    # ================== CheckBox ==================
+    if t == "CheckBox":
+        xml_id = _id_base(attrs.get("id", ""))
+        handler_name = _find_handler(logic_map, xml_id)
+        
+        text_raw = attrs.get("text", "")
+        text = resolver.resolve(text_raw) if resolver else text_raw
+        text = text or ""
+        
+        checked = (attrs.get("checked") or "").lower() == "true"
+        
+        if text:
+            body = f'CheckboxListTile(value: {str(checked).lower()}, onChanged: (value) => {{ setState(() => {{ /* TODO: update state */ }}); }}, title: Text("{escape_dart(text)}"))'
+        else:
+            body = f'Checkbox(value: {str(checked).lower()}, onChanged: (value) => {{ setState(() => {{ /* TODO: update state */ }}); }})'
+        
+        if handler_name:
+            body = body.replace('onChanged: (value) => { setState(() => { /* TODO: update state */ }); }', 
+                              f'onChanged: (value) => {{ setState(() => {{ /* TODO: update state */ }}); {handler_name}(context); }}')
+        
+        return apply_layout_modifiers(body, attrs, resolver)
+    
+    # ================== ToggleButton ==================
+    
+
+    if t == "ToggleButton":
+        xml_id = _id_base(attrs.get("id", ""))
+        handler_name = _find_handler(logic_map, xml_id)
+        
+        checked = (attrs.get("checked") or "").lower() == "true"
+        
+        body = f'Switch(value: {str(checked).lower()}, onChanged: (value) => {{ setState(() => {{ /* TODO: update state */ }}); }})'
+        
+        if handler_name:
+            body = body.replace('onChanged: (value) => { setState(() => { /* TODO: update state */ }); }', 
+                              f'onChanged: (value) => {{ setState(() => {{ /* TODO: update state */ }}); {handler_name}(context); }}')
+        
+        return apply_layout_modifiers(body, attrs, resolver)
+    
+    # ================== View (区切り線など) ==================
+    if t == "View":
+        # Viewタグは通常、区切り線やスペーサーとして使用される
+        bg_raw = attrs.get("background")
+        height_raw = attrs.get("layout_height") or attrs.get("height") or "1"
+        width_raw = attrs.get("layout_width") or attrs.get("width") or "match_parent"
+        
+        # 高さを解析
+        height_val = "1"
+        if "dp" in height_raw or "dip" in height_raw:
+            try:
+                height_val = height_raw.replace("dp", "").replace("dip", "").strip()
+            except:
+                pass
+        
+        # 背景色を解析
+        # Viewタグの背景色は既にContainerに設定されるので、apply_layout_modifiersに渡す前に背景色をattrsから削除
+        attrs_copy = attrs.copy()
+        if "background" in attrs_copy:
+            del attrs_copy["background"]
+        
+        if bg_raw and resolver:
+            resolved_bg = resolver.resolve(bg_raw) or bg_raw
+            color_hex = ResourceResolver.android_color_to_flutter(resolved_bg)
+            if color_hex:
+                body = f'Container(height: {height_val}, width: double.infinity, color: Color({color_hex}))'
+            else:
+                body = f'Container(height: {height_val}, width: double.infinity, color: Colors.grey)'
+        else:
+            body = f'Container(height: {height_val}, width: double.infinity, color: Colors.grey)'
+        
+        return apply_layout_modifiers(body, attrs_copy, resolver)
 
     # ================== ImageView ==================
     if t.endswith("ImageView") or t == "AppCompatImageView":
@@ -258,6 +459,9 @@ def translate_view(
             body = "Center(child: Container(width: 180, height: 180, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(8)), child: Icon(Icons.image, size: 80, color: Colors.grey[600])))"
         return apply_layout_modifiers(body, attrs, resolver)
 
-    # ================== fallback ==================
-    body = f"/* TODO: translate {t} */ SizedBox()"
+    # ================== fallback (カスタムView等) ==================
+    # カスタムViewの場合は、プレースホルダーを表示
+    # クラス名から表示名を生成
+    display_name = t.split('.')[-1]  # パッケージ名を除いたクラス名
+    body = f"Container(width: 200, height: 200, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey[600])), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.code, size: 48, color: Colors.grey[600]), SizedBox(height: 8), Text('{display_name}', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey[700], fontSize: 12))]))"
     return apply_layout_modifiers(body, attrs, resolver)

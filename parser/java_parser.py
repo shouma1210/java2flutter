@@ -1,6 +1,5 @@
 # android2flutter/translator/java_parser.py
 from __future__ import annotations
-
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -275,3 +274,107 @@ def extract_click_handlers(java_root: str, xml_ids: List[str]) -> Dict[str, Clic
                     handlers_by_id[vid] = h
 
     return handlers_by_id
+
+
+# ============================
+# Fragment検出用のIR
+# ============================
+
+@dataclass
+class FragmentIR:
+    """Fragmentの動的追加を表すIR"""
+    container_id: str          # XML内のコンテナID（例: "container"）
+    fragment_class: str          # Fragmentクラス名（例: "CardViewFragment"）
+    layout_file: Optional[str]  # 推測されたレイアウトファイル名（例: "fragment_card_view.xml"）
+
+
+def _camel_to_snake(name: str) -> str:
+    """キャメルケースをスネークケースに変換"""
+    """キャメルケースをスネークケースに変換"""
+    import re
+    # 大文字の前にアンダースコアを挿入（最初の文字以外）
+    s1 = re.sub(r'(.)([A-Z][a-z]+)', r'\1_\2', name)
+    # 連続する大文字の前にもアンダースコアを挿入
+    s2 = re.sub(r'([a-z0-9])([A-Z])', r'\1_\2', s1)
+    return s2.lower()
+def _guess_fragment_layout(fragment_class: str, layout_dir: str) -> Optional[str]:
+    """
+    Fragmentクラス名からレイアウトファイル名を推測
+    
+    CardViewFragment -> fragment_card_view.xml または card_view_fragment.xml
+    """
+    if not fragment_class.endswith("Fragment"):
+        return None
+    
+    # Fragmentを削除
+    base_name = fragment_class[:-8]  # "Fragment"の8文字を削除
+    
+    # キャメルケースをスネークケースに変換
+    snake_case = _camel_to_snake(base_name)
+    
+    # 候補を生成
+    candidates = [
+        f"fragment_{snake_case}.xml",
+        f"{snake_case}_fragment.xml",
+        f"fragment_{snake_case.lower()}.xml",
+        f"{snake_case.lower()}_fragment.xml",
+    ]
+    
+    # 実際に存在するファイルを確認
+    import os
+    for candidate in candidates:
+        candidate_path = os.path.join(layout_dir, candidate)
+        if os.path.exists(candidate_path):
+            return candidate
+    
+    # 見つからない場合は最初の候補を返す（存在確認は後で行う）
+    return candidates[0] if candidates else None
+
+
+def extract_fragments(java_root: str, layout_dir: str, xml_ids: List[str]) -> Dict[str, FragmentIR]:
+    """
+    java_root 以下の .java を全部見て、
+    getFragmentManager().beginTransaction().add(R.id.xxx, FragmentClass.newInstance())
+    のパターンを検出して FragmentIR として返す。
+    
+    戻り値: {container_id: FragmentIR} の dict
+    """
+    root = Path(java_root)
+    java_files = list(root.rglob("*.java"))
+    
+    id_set = set(xml_ids)
+    fragments_by_id: Dict[str, FragmentIR] = {}
+    
+    # Fragment追加パターンを検出
+    # getFragmentManager().beginTransaction().add(R.id.xxx, FragmentClass.newInstance())
+    # Fragment追加パターン（複数行に対応）
+    # getFragmentManager().beginTransaction().add(R.id.xxx, FragmentClass.newInstance())
+    pattern = re.compile(
+        r'getFragmentManager\s*\(\s*\)\s*\.\s*beginTransaction\s*\(\s*\)\s*'
+        r'(?:\s*\.\s*[^\n]*)*?\s*\.\s*add\s*\(\s*R\.id\.(\w+)\s*,\s*(\w+Fragment)\s*\.\s*newInstance\s*\(\s*\)\s*\)',
+        re.DOTALL | re.MULTILINE
+    )
+    
+    for jf in java_files:
+        src = jf.read_text(encoding="utf-8", errors="ignore")
+        
+        for match in pattern.finditer(src):
+            container_id = match.group(1)
+            fragment_class = match.group(2)
+            
+            # コンテナIDがXMLに存在するか確認
+            if container_id not in id_set:
+                continue
+            
+            # レイアウトファイル名を推測
+            layout_file = _guess_fragment_layout(fragment_class, layout_dir)
+            
+            fragment_ir = FragmentIR(
+                container_id=container_id,
+                fragment_class=fragment_class,
+                layout_file=layout_file,
+            )
+            
+            fragments_by_id[container_id] = fragment_ir
+    
+    return fragments_by_id
