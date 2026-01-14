@@ -648,7 +648,8 @@ def generate_dart_code(
     widget_tree = translate_node(unified.xml_ir, unified.resolver, logic_map=logic_map, fragments_by_id=unified.fragments_by_id, layout_dir=layout_dir, values_dir=values_dir)
 
     # 6.5) Stackが含まれているかチェック（背景画像がある場合）
-    has_stack_background = "Stack(children:" in widget_tree or "Stack(children: [" in widget_tree
+    has_stack_background = "Stack(children:" in widget_tree
+    has_expanded = "Expanded(" in widget_tree
 
     # 7) TextField の検出と StatefulWidget の判定
     has_text_field = _has_text_field(unified.xml_ir)
@@ -683,7 +684,7 @@ def generate_dart_code(
             "imports": imports_list,
             "scaffold_bg_color": root_bg_color,  # ルート要素の背景色
             "scaffold_bg_image": root_bg_image,  # ルート要素の背景画像
-            "has_stack_background": has_stack_background,  # Stackが含まれているか
+            "has_stack_background": has_stack_background, "has_expanded": has_expanded  # StackまたはExpandedが含まれているか
         },
     )
 

@@ -440,28 +440,28 @@ def translate_view(
                     if is_background:
                         # 背景画像の場合、errorBuilderのContainerからwidth/heightを削除
                         # Positioned.fillがサイズを決定するため
-                        error_builder = "errorBuilder: (context, error, stackTrace) => Container(color: Colors.grey[300], child: Icon(Icons.image, size: 80, color: Colors.grey[600]))"
+                        error_builder = "errorBuilder: (context, error, stackTrace) => Container(color: Colors.grey.shade300, child: Icon(Icons.image, size: 80, color: Colors.grey.shade600))"
                     else:
                         # 通常のImageViewの場合、固定サイズのerrorBuilderを使用
-                        error_builder = "errorBuilder: (context, error, stackTrace) => Container(width: 180, height: 180, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(8)), child: Icon(Icons.image, size: 80, color: Colors.grey[600]))"
+                        error_builder = "errorBuilder: (context, error, stackTrace) => Container(width: 180, height: 180, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(8)), child: Icon(Icons.image, size: 80, color: Colors.grey.shade600))"
                     
                     # アセット画像を使用（アセットが存在しない場合のエラーを避けるため、プレースホルダーも用意）
                     # 実際のアプリでは、アセットを追加するか、ネットワーク画像を使用する
                     body = f"Image.asset('{asset_path}', fit: {box_fit}, {error_builder})"
                 else:
                     # アセットパスが解決できない場合、プレースホルダーを表示
-                    body = "Center(child: Container(width: 180, height: 180, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(8)), child: Icon(Icons.image, size: 80, color: Colors.grey[600])))"
+                    body = "Center(child: Container(width: 180, height: 180, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(8)), child: Icon(Icons.image, size: 80, color: Colors.grey.shade600)))"
             else:
                 # drawableパスが解決できない場合、プレースホルダーを表示
-                body = "Center(child: Container(width: 180, height: 180, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(8)), child: Icon(Icons.image, size: 80, color: Colors.grey[600])))"
+                body = "Center(child: Container(width: 180, height: 180, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(8)), child: Icon(Icons.image, size: 80, color: Colors.grey.shade600)))"
         else:
             # src属性がない場合、プレースホルダーを表示
-            body = "Center(child: Container(width: 180, height: 180, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(8)), child: Icon(Icons.image, size: 80, color: Colors.grey[600])))"
+            body = "Center(child: Container(width: 180, height: 180, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(8)), child: Icon(Icons.image, size: 80, color: Colors.grey.shade600)))"
         return apply_layout_modifiers(body, attrs, resolver)
 
     # ================== fallback (カスタムView等) ==================
     # カスタムViewの場合は、プレースホルダーを表示
     # クラス名から表示名を生成
     display_name = t.split('.')[-1]  # パッケージ名を除いたクラス名
-    body = f"Container(width: 200, height: 200, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey[600])), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.code, size: 48, color: Colors.grey[600]), SizedBox(height: 8), Text('{display_name}', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey[700], fontSize: 12))]))"
+    body = f"Container(width: 200, height: 200, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade600)), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.code, size: 48, color: Colors.grey.shade600), SizedBox(height: 8), Text('{display_name}', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey.shade700, fontSize: 12))]))"
     return apply_layout_modifiers(body, attrs, resolver)

@@ -38,7 +38,6 @@ class _{{ class_name }}State extends State<{{ class_name }}> {
 
   @override
   Widget build(BuildContext context) {
-    print("FestoraLogin build called");
     Widget content = {{ widget_tree }};
 
     {# ---- 余白（画面外側） ---- #}
@@ -51,10 +50,9 @@ class _{{ class_name }}State extends State<{{ class_name }}> {
 
     {# ---- ScrollView ラップ（必要時のみ、Stackの場合は外に配置） ---- #}
     {% if use_scrollview %}
-    {% if options.has_stack_background %}
-    {# Stackがある場合、Stack全体をSingleChildScrollViewの外に配置 ---- #}
-    {# 前景コンテンツのみをSingleChildScrollViewでラップする必要があるが、 ---- #}
-    {# テンプレート側では難しいため、Stack全体をSingleChildScrollViewの外に配置 ---- #}
+    {% if options.has_stack_background or options.has_expanded %}
+    {# StackまたはExpandedがある場合、SingleChildScrollViewの外に配置 ---- #}
+    {# ExpandedはRow/Columnの直接の子である必要があるため、SingleChildScrollViewでラップできない ---- #}
     {% else %}
     content = SingleChildScrollView(
       child: content,
@@ -71,7 +69,7 @@ class _{{ class_name }}State extends State<{{ class_name }}> {
       );
     }
 
-    {# ---- Scaffold で包む（基本推奨） ---- #}
+    {# ---- Scaffold で包む ---- #}
     {% if use_scaffold %}
     {% if options.scaffold_bg_image %}
     {# 背景画像がある場合はStack構造を使用（背景を背面に、UIを前景に） #}
@@ -126,10 +124,9 @@ class _{{ class_name }}State extends State<{{ class_name }}> {
     }
 
     {% if use_scrollview %}
-    {% if options.has_stack_background %}
-    {# Stackがある場合、Stack全体をSingleChildScrollViewの外に配置 ---- #}
-    {# 前景コンテンツのみをSingleChildScrollViewでラップする必要があるが、 ---- #}
-    {# テンプレート側では難しいため、Stack全体をSingleChildScrollViewの外に配置 ---- #}
+    {% if options.has_stack_background or options.has_expanded %}
+    {# StackまたはExpandedがある場合、SingleChildScrollViewの外に配置 ---- #}
+    {# ExpandedはRow/Columnの直接の子である必要があるため、SingleChildScrollViewでラップできない ---- #}
     {% else %}
     content = SingleChildScrollView(
       child: content,

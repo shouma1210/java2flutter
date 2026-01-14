@@ -12,12 +12,14 @@ def _wrap_match_parent_for_linear(child_code: str, child_attrs: dict, parent_ori
     if parent_orientation == "vertical":
         if h == "match_parent":
             code = f"Expanded(child: {code})"
-        if w == "match_parent":
+        # Expandedでラップした後は、SizedBoxでラップしない（ExpandedはRow/Columnの直接の子である必要がある）
+        if w == "match_parent" and "Expanded" not in code:
             code = f"SizedBox(width: double.infinity, child: {code})"
     else:  # horizontal
         if w == "match_parent":
             code = f"Expanded(child: {code})"
-        if h == "match_parent":
+        # Expandedでラップした後は、SizedBoxでラップしない
+        if h == "match_parent" and "Expanded" not in code:
             code = f"SizedBox(height: double.infinity, child: {code})"
     return code
 
