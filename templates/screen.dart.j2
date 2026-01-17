@@ -71,7 +71,13 @@ class _{{ class_name }}State extends State<{{ class_name }}> {
 
     {# ---- Scaffold で包む ---- #}
     {% if use_scaffold %}
-    {% if options.scaffold_bg_image %}
+    {% if options.scaffold_bg_decoration %}
+    {# XML drawableの背景がある場合はContainerでBoxDecorationを使用 #}
+    content = Container(
+      decoration: {{ options.scaffold_bg_decoration }},
+      child: content,
+    );
+    {% elif options.scaffold_bg_image %}
     {# 背景画像がある場合はStack構造を使用（背景を背面に、UIを前景に） #}
     content = Stack(
       children: [
@@ -113,7 +119,6 @@ class _{{ class_name }}State extends State<{{ class_name }}> {
   {% else %} {# ------------ Stateless 版 ------------ #}
   @override
   Widget build(BuildContext context) {
-    print("FestoraLogin build called");
     Widget content = {{ widget_tree }};
 
     if ({{ page_padding }} > 0.0) {
@@ -143,7 +148,13 @@ class _{{ class_name }}State extends State<{{ class_name }}> {
     {% endif %}
 
     {% if use_scaffold %}
-    {% if options.scaffold_bg_image %}
+    {% if options.scaffold_bg_decoration %}
+    {# XML drawableの背景がある場合はContainerでBoxDecorationを使用 #}
+    content = Container(
+      decoration: {{ options.scaffold_bg_decoration }},
+      child: content,
+    );
+    {% elif options.scaffold_bg_image %}
     {# 背景画像がある場合はStack構造を使用（背景を背面に、UIを前景に） #}
     content = Stack(
       children: [

@@ -1,4 +1,3 @@
-# android2flutter/translator/java_parser.py
 from __future__ import annotations
 import re
 from dataclasses import dataclass, field
@@ -6,19 +5,14 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 
-# ============================
-# 1. ミニ AST 定義
-# ============================
-
 class AstNode:
-    """Java ロジック用の簡易 AST ノード基底クラス"""
     pass
 
 
 @dataclass
 class MethodCall(AstNode):
-    target: Optional[str]   # 例: "startActivity", "Toast.makeText"
-    args: str               # 引数文字列（今回はそのまま保持）
+    target: Optional[str]  
+    args: str              
 
 
 @dataclass
@@ -30,7 +24,6 @@ class IfStmt(AstNode):
 
 @dataclass
 class RawStmt(AstNode):
-    """うまくパースできなかった行をそのまま持つ"""
     text: str
 
 
@@ -39,13 +32,8 @@ class Block(AstNode):
     statements: List[AstNode] = field(default_factory=list)
 
 
-# ============================
-# 2. ハンドラ IR
-# ============================
-
 @dataclass
 class ClickHandlerIR:
-    """1つの onClick / setOnClickListener に対応する IR"""
     name: str              # Dart側の関数名（後で generator 側で付け直し可）
     view_ids: List[str]    # このハンドラが対応する XML id（複数可）
     java_src: str          # 元の Java コード断片
@@ -189,6 +177,11 @@ def _extract_onclick_body(body: str) -> str:
     if m:
         return m.group(1)
 
+    # 単一行ラムダ v -> expression
+    m = re.search(r'->\s*(.+?)\s*$', body, re.DOTALL)
+    if m:
+        return m.group(1).strip()
+
     # 匿名クラス new ... { public void onClick(...) { ... } }
     m = re.search(r'onClick\s*\([^)]*\)\s*\{(.*)\}\s*[^}]*$', body, re.DOTALL)
     if m:
@@ -208,7 +201,7 @@ def _extract_handlers_from_src(src: str, var2id: Dict[str, str], id_set: set) ->
         r'(?P<target>[\w\.]+(?:\(\s*R\.id\.(?P<id>\w+)\s*\))?)\s*'
         r'\.\s*setOnClickListener\s*\('
         r'(?P<body>'
-        r'(?:\w+|\([^)]*\))\s*->\s*\{.*?\}'                                      # ラムダ
+        r'(?:\w+|\([^)]*\))\s*->\s*(?:\{.*?\}|[^;]+)'                                      # ラムダ
         r'|new\s+\w+(?:\.\w+)*\s*\(\)\s*\{.*?onClick\s*\([^)]*\)\s*\{.*?\}.*?\}'  # 匿名クラス
         r')\s*\)\s*;',
         re.DOTALL,
@@ -229,6 +222,9 @@ def _extract_handlers_from_src(src: str, var2id: Dict[str, str], id_set: set) ->
             v = v.split('.')[-1]
             if v in var2id:
                 view_ids.append(var2id[v])
+            elif v in id_set:
+                # ViewBindingパターン（binding.btnMateriなど）の場合、直接IDとして使用
+                view_ids.append(v)
 
         if not view_ids:
             continue

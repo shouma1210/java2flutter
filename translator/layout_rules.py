@@ -1,7 +1,7 @@
 # android2flutter/translator/layout_rules.py
-from ..parser.resource_resolver import ResourceResolver
+from parser.resource_resolver import ResourceResolver
 import os
-from ..utils import indent, apply_layout_modifiers
+from utils import indent, apply_layout_modifiers
 
 def _wrap_match_parent_for_linear(child_code: str, child_attrs: dict, parent_orientation: str) -> str:
     """LinearLayout 配下の子の match_parent を Expanded / width∞ で表現する"""
@@ -14,12 +14,16 @@ def _wrap_match_parent_for_linear(child_code: str, child_attrs: dict, parent_ori
             code = f"Expanded(child: {code})"
         # Expandedでラップした後は、SizedBoxでラップしない（ExpandedはRow/Columnの直接の子である必要がある）
         if w == "match_parent" and "Expanded" not in code:
+            # match_parentの意図は「親の幅いっぱい」なので、double.infinityを使用（親の制約に従う）
+            # MediaQueryを使うとRow内で問題が起こるため、double.infinityに戻す
             code = f"SizedBox(width: double.infinity, child: {code})"
     else:  # horizontal
         if w == "match_parent":
             code = f"Expanded(child: {code})"
         # Expandedでラップした後は、SizedBoxでラップしない
         if h == "match_parent" and "Expanded" not in code:
+            # match_parentの意図は「親の高さいっぱい」なので、double.infinityを使用（親の制約に従う）
+            # MediaQueryを使うとRow内で問題が起こるため、double.infinityに戻す
             code = f"SizedBox(height: double.infinity, child: {code})"
     return code
 
@@ -259,7 +263,10 @@ def translate_layout(node, resolver, logic_map=None, fragments_by_id=None, layou
         for ch in children:
             child_code = translate_node(ch, resolver, logic_map=logic_map, fragments_by_id=fragments_by_id, layout_dir=layout_dir, values_dir=values_dir)
             child_attrs = ch.get("attrs", {}) or {}
-            child_code = _wrap_match_parent_for_linear(child_code, child_attrs, orientation)
+            # Viewタグは固定値で処理されているので、_wrap_match_parent_for_linearをスキップ
+            child_type = (ch.get("type") or "").lower()
+            if child_type != "view":
+                child_code = _wrap_match_parent_for_linear(child_code, child_attrs, orientation)
             dart_children_list.append(child_code)
 
         children_joined = ",\n".join(dart_children_list)
@@ -296,7 +303,7 @@ def translate_layout(node, resolver, logic_map=None, fragments_by_id=None, layou
                         fragment_layout_path = os.path.join(layout_dir, fragment_ir.layout_file)
                         if os.path.exists(fragment_layout_path):
                             # Fragmentのレイアウトを読み込んで変換
-                            from ..parser.xml_parser import parse_layout_xml
+                            from parser.xml_parser import parse_layout_xml
                             try:
                                 fragment_ir_tree, fragment_resolver = parse_layout_xml(fragment_layout_path, values_dir)
                                 # Fragmentのレイアウトを変換
@@ -304,57 +311,57 @@ def translate_layout(node, resolver, logic_map=None, fragments_by_id=None, layou
                                 body = fragment_widget
                             except Exception as e:
                                 # 読み込みに失敗した場合は警告を表示
-                                body = f"Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [\\n" \
-                                       f"  Icon(Icons.error_outline, size: 48, color: Colors.red),\\n" \
-                                       f"  SizedBox(height: 16),\\n" \
-                                       f"  Text('Failed to load fragment: {fragment_ir.layout_file}',\\n" \
-                                       f"    textAlign: TextAlign.center,\\n" \
-                                       f"    style: TextStyle(color: Colors.red[600])),\\n" \
+                                body = f"Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [\n" \
+                                       f"  Icon(Icons.error_outline, size: 48, color: Colors.red),\n" \
+                                       f"  SizedBox(height: 16),\n" \
+                                       f"  Text('Failed to load fragment: {fragment_ir.layout_file}',\n" \
+                                       f"    textAlign: TextAlign.center,\n" \
+                                       f"    style: TextStyle(color: Colors.red[600])),\n" \
                                        f"]))"
                         else:
                             # レイアウトファイルが見つからない場合
-                            body = f"Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [\\n" \
-                                   f"  Icon(Icons.info_outline, size: 48, color: Colors.grey),\\n" \
-                                   f"  SizedBox(height: 16),\\n" \
-                                   f"  Text('Fragment detected: {fragment_ir.fragment_class}\\\\nLayout file not found: {fragment_ir.layout_file}',\\n" \
-                                   f"    textAlign: TextAlign.center,\\n" \
-                                   f"    style: TextStyle(color: Colors.grey[600])),\\n" \
+                            body = f"Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [\n" \
+                                   f"  Icon(Icons.info_outline, size: 48, color: Colors.grey),\n" \
+                                   f"  SizedBox(height: 16),\n" \
+                                   f"  Text('Fragment detected: {fragment_ir.fragment_class}\\nLayout file not found: {fragment_ir.layout_file}',\n" \
+                                   f"    textAlign: TextAlign.center,\n" \
+                                   f"    style: TextStyle(color: Colors.grey[600])),\n" \
                                    f"]))"
                     else:
                         # レイアウトファイル名が推測できなかった場合
-                        body = f"Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [\\n" \
-                               f"  Icon(Icons.info_outline, size: 48, color: Colors.grey),\\n" \
-                               f"  SizedBox(height: 16),\\n" \
-                               f"  Text('Fragment detected: {fragment_ir.fragment_class}\\\\nCould not guess layout file name.',\\n" \
-                               f"    textAlign: TextAlign.center,\\n" \
-                               f"    style: TextStyle(color: Colors.grey[600])),\\n" \
+                        body = f"Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [\n" \
+                               f"  Icon(Icons.info_outline, size: 48, color: Colors.grey),\n" \
+                               f"  SizedBox(height: 16),\n" \
+                               f"  Text('Fragment detected: {fragment_ir.fragment_class}\\nCould not guess layout file name.',\n" \
+                               f"    textAlign: TextAlign.center,\n" \
+                               f"    style: TextStyle(color: Colors.grey[600])),\n" \
                                f"]))"
                 else:
                     # Fragmentが検出されなかった場合の既存の処理
-                    body = "Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [\\n" \
-                           "  Icon(Icons.info_outline, size: 48, color: Colors.grey),\\n" \
-                           "  SizedBox(height: 16),\\n" \
-                           "  Text('Empty container detected.\\\\nThis may be a Fragment container.',\\n" \
-                           "    textAlign: TextAlign.center,\\n" \
-                           "    style: TextStyle(color: Colors.grey[600])),\\n" \
+                    body = "Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [\n" \
+                           "  Icon(Icons.info_outline, size: 48, color: Colors.grey),\n" \
+                           "  SizedBox(height: 16),\n" \
+                           "  Text('Empty container detected.\\nThis may be a Fragment container.',\n" \
+                           "    textAlign: TextAlign.center,\n" \
+                           "    style: TextStyle(color: Colors.grey[600])),\n" \
                            "]))"
             else:
                 # IDがない場合の既存の処理
-                body = "Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [\\n" \
-                       "  Icon(Icons.info_outline, size: 48, color: Colors.grey),\\n" \
-                       "  SizedBox(height: 16),\\n" \
-                       "  Text('Empty container detected.\\\\nThis may be a Fragment container.',\\n" \
-                       "    textAlign: TextAlign.center,\\n" \
-                       "    style: TextStyle(color: Colors.grey[600])),\\n" \
+                body = "Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [\n" \
+                       "  Icon(Icons.info_outline, size: 48, color: Colors.grey),\n" \
+                       "  SizedBox(height: 16),\n" \
+                       "  Text('Empty container detected.\\nThis may be a Fragment container.',\n" \
+                       "    textAlign: TextAlign.center,\n" \
+                       "    style: TextStyle(color: Colors.grey[600])),\n" \
                        "]))"
         elif not dart_children:
             # Fragment検出が無効な場合のフォールバック
-            body = "Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [\\n" \
-                   "  Icon(Icons.info_outline, size: 48, color: Colors.grey),\\n" \
-                   "  SizedBox(height: 16),\\n" \
-                   "  Text('Empty container detected.\\\\nThis may be a Fragment container.',\\n" \
-                   "    textAlign: TextAlign.center,\\n" \
-                   "    style: TextStyle(color: Colors.grey[600])),\\n" \
+            body = "Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [\n" \
+                   "  Icon(Icons.info_outline, size: 48, color: Colors.grey),\n" \
+                   "  SizedBox(height: 16),\n" \
+                   "  Text('Empty container detected.\\nThis may be a Fragment container.',\n" \
+                   "    textAlign: TextAlign.center,\n" \
+                   "    style: TextStyle(color: Colors.grey[600])),\n" \
                    "]))"
         else:
             body = f"Stack(children: [\n{indent(',\n'.join(dart_children))}\n])"
@@ -479,5 +486,5 @@ def translate_node(node: dict, resolver, logic_map=None, fragments_by_id=None, l
     
     if t in ("LinearLayout", "FrameLayout", "RelativeLayout", "ConstraintLayout", "ScrollView", "TableLayout", "TableRow", "RadioGroup"):
         return translate_layout(node, resolver, logic_map=logic_map, fragments_by_id=fragments_by_id, layout_dir=layout_dir, values_dir=values_dir)
-    from .view_rules import translate_view
+    from translator.view_rules import translate_view
     return translate_view(node, resolver, logic_map)

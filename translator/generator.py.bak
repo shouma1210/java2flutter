@@ -5,9 +5,9 @@ import re
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Set
 
-from parser.xml_parser import parse_layout_xml
-from parser.resource_resolver import ResourceResolver
-from parser.java_parser import (
+from ..parser.xml_parser import parse_layout_xml
+from ..parser.resource_resolver import ResourceResolver
+from ..parser.java_parser import (
     extract_click_handlers,
     extract_fragments,
     ClickHandlerIR,
@@ -18,7 +18,7 @@ from parser.java_parser import (
     RawStmt,
 )
 
-from translator.layout_rules import translate_node
+from .layout_rules import translate_node
 
 try:
     from jinja2 import Environment, FileSystemLoader
@@ -342,7 +342,7 @@ def _java_ast_block_to_dart(block: Block, known_imports: Set[str]) -> str:
                         
                         lines.append(f"if ({cond}) {{")
                         # then_blockを再帰的に処理
-                        from parser.java_parser import Block, _append_simple_statements
+                        from ..parser.java_parser import Block, _append_simple_statements
                         then_block = Block()
                         _append_simple_statements(then_block, then_body)
                         inner = _java_ast_block_to_dart(then_block, known_imports)
@@ -846,14 +846,14 @@ def generate_dart_code(
             # XML形式のdrawableリソースか画像ファイルかを判定
             if drawable_path.lower().endswith(".xml"):
                 # XML形式のdrawableリソース（shape drawableなど）の場合
-                from utils import _parse_shape_drawable_to_boxdecoration
+                from ..utils import _parse_shape_drawable_to_boxdecoration
                 root_bg_decoration = _parse_shape_drawable_to_boxdecoration(drawable_path, resolver)
                 # XML drawableの場合は背景画像属性を削除（BoxDecorationとして処理）
                 if root_bg_decoration:
                     unified.xml_ir["attrs"] = {k: v for k, v in root_attrs.items() if k != "background"}
             else:
                 # 背景画像の場合
-                from utils import get_asset_path_from_drawable
+                from ..utils import get_asset_path_from_drawable
                 root_bg_image = get_asset_path_from_drawable(drawable_path)
                 # 背景画像属性を一時的に削除（translate_nodeの後で復元する必要はない）
                 unified.xml_ir["attrs"] = {k: v for k, v in root_attrs.items() if k != "background"}
