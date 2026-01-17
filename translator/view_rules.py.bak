@@ -1,5 +1,5 @@
-from parser.resource_resolver import ResourceResolver
-from utils import indent, apply_layout_modifiers, escape_dart, get_asset_path_from_drawable, _parse_shape_drawable_to_boxdecoration
+from ..parser.resource_resolver import ResourceResolver
+from ..utils import indent, apply_layout_modifiers, escape_dart, get_asset_path_from_drawable, _parse_shape_drawable_to_boxdecoration
 
 
 def _id_base(v: str) -> str:

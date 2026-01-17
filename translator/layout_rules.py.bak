@@ -1,7 +1,7 @@
 # android2flutter/translator/layout_rules.py
-from parser.resource_resolver import ResourceResolver
+from ..parser.resource_resolver import ResourceResolver
 import os
-from utils import indent, apply_layout_modifiers
+from ..utils import indent, apply_layout_modifiers
 
 def _wrap_match_parent_for_linear(child_code: str, child_attrs: dict, parent_orientation: str) -> str:
     """LinearLayout 配下の子の match_parent を Expanded / width∞ で表現する"""
@@ -303,7 +303,7 @@ def translate_layout(node, resolver, logic_map=None, fragments_by_id=None, layou
                         fragment_layout_path = os.path.join(layout_dir, fragment_ir.layout_file)
                         if os.path.exists(fragment_layout_path):
                             # Fragmentのレイアウトを読み込んで変換
-                            from parser.xml_parser import parse_layout_xml
+                            from ..parser.xml_parser import parse_layout_xml
                             try:
                                 fragment_ir_tree, fragment_resolver = parse_layout_xml(fragment_layout_path, values_dir)
                                 # Fragmentのレイアウトを変換
@@ -486,5 +486,5 @@ def translate_node(node: dict, resolver, logic_map=None, fragments_by_id=None, l
     
     if t in ("LinearLayout", "FrameLayout", "RelativeLayout", "ConstraintLayout", "ScrollView", "TableLayout", "TableRow", "RadioGroup"):
         return translate_layout(node, resolver, logic_map=logic_map, fragments_by_id=fragments_by_id, layout_dir=layout_dir, values_dir=values_dir)
-    from translator.view_rules import translate_view
+    from .view_rules import translate_view
     return translate_view(node, resolver, logic_map)

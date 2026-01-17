@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import re
+import os
 from typing import Any, Dict, Optional
+from lxml import etree
 
-from .parser.resource_resolver import ResourceResolver
+from parser.resource_resolver import ResourceResolver
 
 
 def indent(code: str, spaces: int = 2) -> str:
@@ -123,10 +125,144 @@ def get_asset_path_from_drawable(drawable_path: str) -> Optional[str]:
     # drawableディレクトリ名とファイル名を抽出
     # 例: /path/to/res/drawable/bg.png -> assets/images/bg.png
     # または: /path/to/res/drawable-hdpi/bg.png -> assets/images/bg.png
-    import os
     filename = os.path.basename(drawable_path)
     # 拡張子を保持したまま、assets/images/に配置する想定
     return f"assets/images/{filename}"
+
+
+def _parse_shape_drawable_to_boxdecoration(xml_path: str, resolver: Optional[ResourceResolver]) -> Optional[str]:
+    """XML形式のshape drawableをFlutterのBoxDecorationに変換"""
+    if not xml_path or not xml_path.lower().endswith(".xml"):
+        return None
+    
+    if not os.path.exists(xml_path):
+        return None
+    
+    try:
+        tree = etree.parse(xml_path)
+        root = tree.getroot()
+        
+        # shape要素を探す（名前空間あり/なしの両方に対応）
+        shape = root.find(".//{http://schemas.android.com/apk/res/android}shape")
+        if shape is None:
+            # 名前空間なしのshape要素も探す
+            shape = root.find(".//shape")
+        if shape is None:
+            # shape要素がない場合はNoneを返す
+            return None
+        
+        decoration_parts = []
+        
+        # solid要素（背景色）
+        solid = shape.find(".//{http://schemas.android.com/apk/res/android}solid")
+        if solid is None:
+            # 名前空間なしのsolid要素も探す
+            solid = shape.find(".//solid")
+        if solid is not None:
+            # 属性はandroid:プレフィックス付きで取得
+            color_attr = solid.get("{http://schemas.android.com/apk/res/android}color")
+            if not color_attr:
+                # android:プレフィックスなしでも試す
+                color_attr = solid.get("color")
+            if color_attr:
+                # 色を解決（@color/xxx または直接 #RRGGBB 形式）
+                # ?attr/xxx のようなテーマ属性の場合はフォールバック色を使用
+                if color_attr.startswith("?attr/"):
+                    # テーマ属性の場合はデフォルト色を使用（TODO: テーマから取得するように改善可能）
+                    # 例: ?attr/colorOnPrimary -> Colors.white など
+                    # ここでは一旦グレーを使用
+                    decoration_parts.append("color: Colors.grey.shade200")
+                else:
+                    if resolver:
+                        resolved_color = resolver.resolve(color_attr) or color_attr
+                    else:
+                        resolved_color = color_attr
+                    color_hex = ResourceResolver.android_color_to_flutter(resolved_color)
+                    if color_hex:
+                        decoration_parts.append(f"color: Color({color_hex})")
+                    elif not color_attr.startswith("?"):
+                        # 解決できないが、テーマ属性でもない場合はデフォルト色を使用
+                        decoration_parts.append("color: Colors.grey.shade200")
+        
+        # corners要素（角丸）
+        corners = shape.find(".//{http://schemas.android.com/apk/res/android}corners")
+        if corners is None:
+            # 名前空間なしのcorners要素も探す
+            corners = shape.find(".//corners")
+        if corners is not None:
+            # 個別の角丸半径を取得
+            top_left = corners.get("{http://schemas.android.com/apk/res/android}topLeftRadius") or corners.get("topLeftRadius")
+            top_right = corners.get("{http://schemas.android.com/apk/res/android}topRightRadius") or corners.get("topRightRadius")
+            bottom_left = corners.get("{http://schemas.android.com/apk/res/android}bottomLeftRadius") or corners.get("bottomLeftRadius")
+            bottom_right = corners.get("{http://schemas.android.com/apk/res/android}bottomRightRadius") or corners.get("bottomRightRadius")
+            radius_attr = corners.get("{http://schemas.android.com/apk/res/android}radius") or corners.get("radius")
+            
+            # 個別の角丸半径が指定されている場合
+            if top_left or top_right or bottom_left or bottom_right:
+                radius_values = []
+                if top_left:
+                    top_left_val = _parse_dimen(top_left, resolver)
+                    if top_left_val:
+                        radius_values.append(f"topLeft: {top_left_val}")
+                if top_right:
+                    top_right_val = _parse_dimen(top_right, resolver)
+                    if top_right_val:
+                        radius_values.append(f"topRight: {top_right_val}")
+                if bottom_left:
+                    bottom_left_val = _parse_dimen(bottom_left, resolver)
+                    if bottom_left_val:
+                        radius_values.append(f"bottomLeft: {bottom_left_val}")
+                if bottom_right:
+                    bottom_right_val = _parse_dimen(bottom_right, resolver)
+                    if bottom_right_val:
+                        radius_values.append(f"bottomRight: {bottom_right_val}")
+                
+                if radius_values:
+                    decoration_parts.append(f"borderRadius: BorderRadius.only({', '.join(radius_values)})")
+            elif radius_attr:
+                # 全角に同じ半径が指定されている場合
+                radius_val = _parse_dimen(radius_attr, resolver)
+                if radius_val:
+                    decoration_parts.append(f"borderRadius: BorderRadius.circular({radius_val})")
+        
+        # stroke要素（境界線）
+        stroke = shape.find(".//{http://schemas.android.com/apk/res/android}stroke")
+        if stroke is None:
+            # 名前空間なしのstroke要素も探す
+            stroke = shape.find(".//stroke")
+        if stroke is not None:
+            width_attr = stroke.get("{http://schemas.android.com/apk/res/android}width") or stroke.get("width")
+            color_attr = stroke.get("{http://schemas.android.com/apk/res/android}color") or stroke.get("color")
+            if width_attr and color_attr:
+                width_val = _parse_dimen(width_attr, resolver)
+                # テーマ属性の場合はフォールバック色を使用
+                if color_attr.startswith("?attr/"):
+                    # テーマ属性の場合はデフォルト色を使用
+                    if width_val:
+                        decoration_parts.append(f"border: Border.all(width: {width_val}, color: Colors.grey.shade400)")
+                else:
+                    if resolver:
+                        resolved_color = resolver.resolve(color_attr) or color_attr
+                    else:
+                        resolved_color = color_attr
+                    color_hex = ResourceResolver.android_color_to_flutter(resolved_color)
+                    if width_val and color_hex:
+                        decoration_parts.append(f"border: Border.all(width: {width_val}, color: Color({color_hex}))")
+        
+        if decoration_parts:
+            return f"BoxDecoration({', '.join(decoration_parts)})"
+        else:
+            # decoration_partsが空の場合は、最低限の色を設定
+            # デバッグ: なぜ空なのか確認
+            import traceback
+            print(f"[DEBUG] decoration_parts is empty for {xml_path}")
+            return "BoxDecoration(color: Colors.grey.shade200)"
+    except Exception as e:
+        # 解析に失敗した場合はデフォルトのBoxDecorationを返す
+        import traceback
+        print(f"[WARN] Failed to parse shape drawable {xml_path}: {e}")
+        traceback.print_exc()
+        return "BoxDecoration(color: Colors.grey.shade200)"
 
 
 def apply_layout_modifiers(
@@ -155,23 +291,44 @@ def apply_layout_modifiers(
             drawable_path = resolver.resolve_drawable_path(bg_raw)
         
         if drawable_path:
-            # 背景画像の場合
-            asset_path = get_asset_path_from_drawable(drawable_path)
-            if asset_path:
-                # SingleChildScrollViewと衝突しないように、width/heightを指定しない
-                widget = (
-                    f"Container("
-                    f"decoration: BoxDecoration("
-                    f"image: DecorationImage("
-                    f"image: AssetImage('{asset_path}'), "
-                    f"fit: BoxFit.cover"
-                    f")"
-                    f"), "
-                    f"child: {widget}"
-                    f")"
-                )
+            # XML形式のdrawableリソースか画像ファイルかを判定
+            if drawable_path.lower().endswith(".xml"):
+                # XML形式のdrawableリソース（shape drawableなど）の場合
+                # XMLを解析してBoxDecorationに変換を試みる
+                decoration_code = _parse_shape_drawable_to_boxdecoration(drawable_path, resolver)
+                if decoration_code:
+                    widget = (
+                        f"Container("
+                        f"decoration: {decoration_code}, "
+                        f"child: {widget}"
+                        f")"
+                    )
+                else:
+                    # 解析できない場合でも、最低限のBoxDecorationを適用
+                    widget = (
+                        f"Container("
+                        f"decoration: BoxDecoration(color: Colors.grey.shade200), "
+                        f"child: {widget}"
+                        f")"
+                    )
             else:
-                widget = f"/* TODO: background image {bg_raw} */ {widget}"
+                # 背景画像の場合
+                asset_path = get_asset_path_from_drawable(drawable_path)
+                if asset_path:
+                    # SingleChildScrollViewと衝突しないように、width/heightを指定しない
+                    widget = (
+                        f"Container("
+                        f"decoration: BoxDecoration("
+                        f"image: DecorationImage("
+                        f"image: AssetImage('{asset_path}'), "
+                        f"fit: BoxFit.cover"
+                        f")"
+                        f"), "
+                        f"child: {widget}"
+                        f")"
+                    )
+                else:
+                    widget = f"/* TODO: background image {bg_raw} */ {widget}"
         else:
             # 色として解決を試みる（@color/xxx または直接 #RRGGBB 形式）
             if resolver:
@@ -179,12 +336,12 @@ def apply_layout_modifiers(
             else:
                 resolved = bg_raw
             color_hex = ResourceResolver.android_color_to_flutter(resolved)
-        if color_hex:
+            if color_hex:
                 # 背景色をContainerでラップする
                 # ただし、ルートレベルの背景色はScaffoldのbackgroundColorに設定する方が良い
                 # ここでは単純にContainerでラップする（SizedBox.expandは使わない）
                 widget = f"Container(color: Color({color_hex}), child: {widget})"
-        else:
+            else:
                 # 解決できない場合は TODO コメント
                 widget = f"/* TODO: background {bg_raw} */ {widget}"
 
