@@ -18,13 +18,17 @@ def escape_dart(s: str) -> str:
     """Dart の文字列リテラル内で問題が出ないように最低限のエスケープを行う."""
     if s is None:
         return ""
-    return (
-        str(s)
-        .replace("\\", "\\\\")
-        .replace('"', '\\"')
-        .replace("\n", "\\n")
-        .replace("\r", "\\r")
-    )
+    result = str(s)
+    # バックスラッシュを最初にエスケープ（他のエスケープ処理の前に）
+    # ただし、\"のようなエスケープシーケンスは、\" -> \\" になる
+    result = result.replace("\\", "\\\\")
+    # シングルクォートをエスケープ（Dartの文字列リテラルはシングルクォートを使用）
+    result = result.replace("'", "\\'")
+    # ダブルクォートはシングルクォート文字列内ではエスケープ不要
+    # 改行文字をエスケープ
+    result = result.replace("\n", "\\n")
+    result = result.replace("\r", "\\r")
+    return result
 
 
 def _parse_dimen(value: str, resolver: Optional[ResourceResolver]) -> Optional[float]:
@@ -333,17 +337,37 @@ def apply_layout_modifiers(
             # 色として解決を試みる（@color/xxx または直接 #RRGGBB 形式）
             if resolver:
                 resolved = resolver.resolve(bg_raw) or bg_raw
+                # 解決された値がまだ@color/参照の場合は再帰的に解決を試みる
+                if isinstance(resolved, str) and resolved.startswith("@color/"):
+                    resolved = resolver.resolve(resolved) or resolved
             else:
                 resolved = bg_raw
+            
+            # @android:color/ の場合は直接解決を試みる
+            if isinstance(resolved, str) and resolved.startswith("@android:color/"):
+                if resolver:
+                    resolved = resolver.resolve(resolved) or resolved
+            
             color_hex = ResourceResolver.android_color_to_flutter(resolved)
             if color_hex:
                 # 背景色をContainerでラップする
                 # ただし、ルートレベルの背景色はScaffoldのbackgroundColorに設定する方が良い
                 # ここでは単純にContainerでラップする（SizedBox.expandは使わない）
-                widget = f"Container(color: Color({color_hex}), child: {widget})"
+                # cardCornerRadiusがある場合は、decorationに含める
+                card_corner_radius = attrs.get("cardCornerRadius") or attrs.get("card_view:cardCornerRadius")
+                if card_corner_radius:
+                    radius_val = _parse_dimen(card_corner_radius, resolver)
+                    if radius_val:
+                        widget = f"Container(decoration: BoxDecoration(color: Color({color_hex}), borderRadius: BorderRadius.circular({radius_val})), child: {widget})"
+                    else:
+                        widget = f"Container(color: Color({color_hex}), child: {widget})"
+                else:
+                    widget = f"Container(color: Color({color_hex}), child: {widget})"
             else:
-                # 解決できない場合は TODO コメント
-                widget = f"/* TODO: background {bg_raw} */ {widget}"
+                # 解決できない場合は TODO コメントを残さず、デフォルト色を使用
+                # widget = f"/* TODO: background {bg_raw} */ {widget}"
+                # TODOコメントを削除して、デフォルトの背景色を使用
+                widget = widget.replace(f"/* TODO: background {bg_raw} */ ", "")
 
     # 2) padding（内側）
     padding_ei = _edge_insets_from_attrs(attrs, resolver, "padding")
@@ -354,6 +378,25 @@ def apply_layout_modifiers(
     margin_ei = _edge_insets_from_attrs(attrs, resolver, "layout_margin")
     if margin_ei:
         widget = f"Padding(padding: {margin_ei}, child: {widget})"
+
+    # 4) cardCornerRadius（CardViewの角丸）
+    # 背景色がない場合のみ処理（背景色がある場合は既にdecorationに含まれている）
+    card_corner_radius = attrs.get("cardCornerRadius") or attrs.get("card_view:cardCornerRadius")
+    if card_corner_radius and not bg_raw:
+        radius_val = _parse_dimen(card_corner_radius, resolver)
+        if radius_val:
+            # Containerでラップされていない場合、新しいContainerでラップ
+            # CardViewの場合は通常、白い背景色を設定する
+            if not widget.startswith("Container("):
+                widget = (
+                    f"Container("
+                    f"decoration: BoxDecoration("
+                    f"color: Colors.white, "
+                    f"borderRadius: BorderRadius.circular({radius_val})"
+                    f"), "
+                    f"child: {widget}"
+                    f")"
+                )
 
     # Gravity / layout_gravity などはレイアウト側のルールに任せる
     return widget

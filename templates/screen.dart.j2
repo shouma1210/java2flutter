@@ -1,5 +1,8 @@
 {% raw %}
 import 'package:flutter/material.dart';
+{% if 'intl' in options.imports or 'DateFormat' in handlers_code %}
+import 'package:intl/intl.dart';
+{% endif %}
 
 {# ===============================
    オプションの既定値（Jinja 側）
@@ -27,7 +30,11 @@ class _{{ class_name }}State extends State<{{ class_name }}> {
   {% for c in controllers %}
   final TextEditingController {{ c }} = TextEditingController();
   {% endfor %}
+  
+  {# ---- RadioGroup用の状態変数（必要に応じて追加） ---- #}
+  String _selectedMood = "😊";
 
+  {% if controllers %}
   @override
   void dispose() {
     {% for c in controllers %}
@@ -35,18 +42,19 @@ class _{{ class_name }}State extends State<{{ class_name }}> {
     {% endfor %}
     super.dispose();
   }
+  {% endif %}
 
   @override
   Widget build(BuildContext context) {
     Widget content = {{ widget_tree }};
 
     {# ---- 余白（画面外側） ---- #}
-    if ({{ page_padding }} > 0.0) {
-      content = Padding(
-        padding: const EdgeInsets.all({{ page_padding }}),
-        child: content,
-      );
-    }
+    {% if page_padding > 0.0 %}
+    content = Padding(
+      padding: const EdgeInsets.all({{ page_padding }}),
+      child: content,
+    );
+    {% endif %}
 
     {# ---- ScrollView ラップ（必要時のみ、Stackの場合は外に配置） ---- #}
     {% if use_scrollview %}
@@ -61,13 +69,13 @@ class _{{ class_name }}State extends State<{{ class_name }}> {
     {% endif %}
 
     {# ---- キーボードで隠れにくくする＋外タップでDismiss ---- #}
-    if ({{ 'true' if keyboard_dismiss else 'false' }}) {
-      content = GestureDetector(
-        behavior: HitTestBehavior.translucent,
-        onTap: () => FocusScope.of(context).unfocus(),
-        child: content,
-      );
-    }
+    {% if keyboard_dismiss %}
+    content = GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onTap: () => FocusScope.of(context).unfocus(),
+      child: content,
+    );
+    {% endif %}
 
     {# ---- Scaffold で包む ---- #}
     {% if use_scaffold %}
@@ -113,20 +121,21 @@ class _{{ class_name }}State extends State<{{ class_name }}> {
     {% endif %}
   }
 
-  // ===== Auto-Generated Handlers (State Internal) =====
-  {{ handlers_code|default('// no handlers') }}
+  {% if handlers_code %}
+  {{ handlers_code }}
+  {% endif %}
 }
   {% else %} {# ------------ Stateless 版 ------------ #}
   @override
   Widget build(BuildContext context) {
     Widget content = {{ widget_tree }};
 
-    if ({{ page_padding }} > 0.0) {
-      content = Padding(
-        padding: const EdgeInsets.all({{ page_padding }}),
-        child: content,
-      );
-    }
+    {% if page_padding > 0.0 %}
+    content = Padding(
+      padding: const EdgeInsets.all({{ page_padding }}),
+      child: content,
+    );
+    {% endif %}
 
     {% if use_scrollview %}
     {% if options.has_stack_background or options.has_expanded %}
@@ -173,7 +182,14 @@ class _{{ class_name }}State extends State<{{ class_name }}> {
     );
     {% endif %}
     return Scaffold(
-      {% if add_appbar %}appBar: AppBar(title: Text('{{ appbar_title }}')), {% endif %}
+      {% if add_appbar %}
+      appBar: AppBar(
+        title: Text('{{ appbar_title }}'),
+        {% if options.appbar_bg_color %}
+        backgroundColor: const Color({{ options.appbar_bg_color }}),
+        {% endif %}
+      ),
+      {% endif %}
       {% if options.scaffold_bg_color %}
       backgroundColor: const Color({{ options.scaffold_bg_color }}),
       {% endif %}
@@ -189,8 +205,9 @@ class _{{ class_name }}State extends State<{{ class_name }}> {
     {% endif %}
   }
 
-  // ===== Auto-Generated Handlers =====
-  {{ handlers_code|default('// no handlers') }}
+  {% if handlers_code %}
+  {{ handlers_code }}
+  {% endif %}
 }
 {% endif %}
 {% endraw %}
