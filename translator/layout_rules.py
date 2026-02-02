@@ -17,39 +17,180 @@ def _wrap_match_parent_for_linear(child_code: str, child_attrs: dict, parent_ori
             # match_parentの意図は「親の幅いっぱい」なので、double.infinityを使用（親の制約に従う）
             # MediaQueryを使うとRow内で問題が起こるため、double.infinityに戻す
             code = f"SizedBox(width: double.infinity, child: {code})"
-    else:  # horizontal
+    else:  # horizontal (Row)
         if w == "match_parent":
             code = f"Expanded(child: {code})"
         # Expandedでラップした後は、SizedBoxでラップしない
+        # Row内ではheight: double.infinityは使えない（unbounded制約エラーの原因）
+        # match_parentの場合は、RowのcrossAxisAlignmentに従うか、固定値を使用
         if h == "match_parent" and "Expanded" not in code:
-            # match_parentの意図は「親の高さいっぱい」なので、double.infinityを使用（親の制約に従う）
-            # MediaQueryを使うとRow内で問題が起こるため、double.infinityに戻す
-            code = f"SizedBox(height: double.infinity, child: {code})"
+            # Row内でmatch_parentの高さは、親の高さに合わせるのではなく、
+            # crossAxisAlignmentに従うか、明示的な高さを指定する
+            # ここでは、RowのcrossAxisAlignmentがcenterの場合を考慮して、高さを指定しない
+            # または、明示的な高さが必要な場合は、適切な値を設定する
+            # とりあえず、Row内ではheight制約を追加しない（crossAxisAlignmentに従う）
+            pass
     return code
 
-def _axes_from_gravity_for_linear(gravity: str, orientation: str):
+def _convert_relative_layout_to_column(children: list, resolver, logic_map=None, fragments_by_id=None, layout_dir=None, values_dir=None) -> str:
+    """RelativeLayoutをColumn構造に変換（layout_belowを処理）"""
+    # layout_belowの依存関係を構築
+    # 各要素がどの要素の下に配置されるかを記録
+    below_map = {}  # child_id -> below_id
+    child_map = {}  # child_id -> (child_node, child_code)
+    
+    # layout_centerHorizontalがある要素の数をカウント
+    has_center_horizontal = False
+    for ch in children:
+        child_attrs = ch.get("attrs", {}) or {}
+        if child_attrs.get("layout_centerHorizontal", "").lower() == "true":
+            has_center_horizontal = True
+            break
+    
+    # まず、すべての子要素を変換
+    for ch in children:
+        child_attrs = ch.get("attrs", {}) or {}
+        raw_id = child_attrs.get("id", "")
+        child_id = raw_id.split("/")[-1] if raw_id else None
+        child_code = translate_node(ch, resolver, logic_map=logic_map, fragments_by_id=fragments_by_id, layout_dir=layout_dir, values_dir=values_dir)
+        
+        layout_below = child_attrs.get("layout_below")
+        if layout_below and child_id:
+            below_id = layout_below.split("/")[-1] if "/" in layout_below else layout_below
+            below_map[child_id] = below_id
+        
+        if child_id:
+            child_map[child_id] = (ch, child_code)
+        else:
+            # IDがない要素も処理（順序を保持）
+            child_map[f"_no_id_{len(child_map)}"] = (ch, child_code)
+    
+    # layout_belowがない要素（ルート要素）を見つける
+    root_ids = set(child_map.keys()) - set(below_map.values())
+    
+    # Column構造を構築
+    column_children = []
+    processed_ids = set()
+    
+    # ルート要素から開始（XMLの順序を保持）
+    for ch in children:
+        child_attrs = ch.get("attrs", {}) or {}
+        raw_id = child_attrs.get("id", "")
+        child_id = raw_id.split("/")[-1] if raw_id else None
+        if not child_id:
+            child_id = f"_no_id_{children.index(ch)}"
+        
+        # ルート要素の場合
+        if child_id in root_ids and child_id not in processed_ids:
+            ch_node, root_code = child_map[child_id]
+            # ColumnのcrossAxisAlignmentを決定
+            cross_axis_str = "center" if has_center_horizontal else "stretch"
+            root_code = _wrap_relative_layout_child(root_code, ch_node.get("attrs", {}), column_cross_axis=cross_axis_str)
+            column_children.append(root_code)
+            processed_ids.add(child_id)
+            
+            # この要素の下に配置される要素を追加
+            # 同じbelow_idを持つ要素をRowで横に並べる（XMLの順序を保持）
+            same_below_ids = []
+            for ch2 in children:
+                child_attrs2 = ch2.get("attrs", {}) or {}
+                raw_id2 = child_attrs2.get("id", "")
+                child_id2 = raw_id2.split("/")[-1] if raw_id2 else None
+                if not child_id2:
+                    child_id2 = f"_no_id_{children.index(ch2)}"
+                if child_id2 in below_map and below_map[child_id2] == child_id:
+                    same_below_ids.append((children.index(ch2), child_id2))
+            
+            # XMLの順序でソート
+            same_below_ids.sort(key=lambda x: x[0])
+            
+            if same_below_ids:
+                row_children = []
+                for _, below_id in same_below_ids:
+                    if below_id not in processed_ids and below_id in child_map:
+                        ch_below, below_code = child_map[below_id]
+                        # ColumnのcrossAxisAlignmentを決定
+                        below_code = _wrap_relative_layout_child(below_code, ch_below.get("attrs", {}), column_cross_axis=cross_axis_str)
+                        row_children.append(below_code)
+                        processed_ids.add(below_id)
+                
+                if row_children:
+                    # 同じbelow_idを持つ要素をRowで横に並べる
+                    row_children_joined = ",\n".join(row_children)
+                    column_children.append(f"Row(children: [\n{indent(row_children_joined)}\n])")
+    
+    # 処理されていない要素も追加（layout_belowが循環参照している場合など）
+    for child_id, (ch, child_code) in child_map.items():
+        if child_id not in processed_ids:
+            # ColumnのcrossAxisAlignmentを決定
+            cross_axis_str = "center" if has_center_horizontal else "stretch"
+            child_code = _wrap_relative_layout_child(child_code, ch.get("attrs", {}), column_cross_axis=cross_axis_str)
+            column_children.append(child_code)
+    
+    if column_children:
+        children_joined = ",\n".join(column_children)
+        # layout_centerHorizontalがある場合は、crossAxisAlignmentをcenterにする
+        cross_axis_str = "center" if has_center_horizontal else "stretch"
+        cross_axis = "CrossAxisAlignment.center" if has_center_horizontal else "CrossAxisAlignment.stretch"
+        return f"Column(crossAxisAlignment: {cross_axis}, children: [\n{indent(children_joined)}\n])"
+    else:
+        return "SizedBox.shrink()"
+
+def _wrap_relative_layout_child(child_code: str, child_attrs: dict, column_cross_axis: str = "stretch") -> str:
+    """RelativeLayoutの子要素をラップ（layout_alignParentLeftなどの属性を処理）"""
+    layout_align_parent_left = child_attrs.get("layout_alignParentLeft", "").lower() == "true"
+    layout_align_parent_right = child_attrs.get("layout_alignParentRight", "").lower() == "true"
+    layout_center_horizontal = child_attrs.get("layout_centerHorizontal", "").lower() == "true"
+    layout_to_left_of = child_attrs.get("layout_toLeftOf")
+    layout_align_right = child_attrs.get("layout_alignRight")
+    
+    # 水平方向の配置を処理
+    # ColumnのcrossAxisAlignmentがcenterの場合、layout_center_horizontalは冗長なのでラップしない
+    if column_cross_axis == "center" and layout_center_horizontal:
+        # ColumnのcrossAxisAlignmentで既に中央配置されているので、Alignでラップしない
+        pass
+    elif layout_center_horizontal:
+        # 中央配置（ColumnのcrossAxisAlignmentがstretchの場合のみAlignを使用）
+        if column_cross_axis == "stretch":
+            # stretchとcenterは矛盾するので、Alignでラップしない
+            pass
+        else:
+            # その他の場合はAlignを使用
+            child_code = f"Align(alignment: Alignment.center, child: {child_code})"
+    elif layout_align_parent_left:
+        # 左端配置
+        child_code = f"Align(alignment: Alignment.centerLeft, child: {child_code})"
+    elif layout_align_parent_right:
+        # 右端配置
+        child_code = f"Align(alignment: Alignment.centerRight, child: {child_code})"
+    elif layout_to_left_of or layout_align_right:
+        # 右側に配置（簡易的な実装）
+        child_code = f"Align(alignment: Alignment.centerRight, child: {child_code})"
+    
+    return child_code
+
+def _axes_from_gravity_for_linear(gravity: str, orientation: str, allow_center: bool = False):
     """gravity を Flutter の main/cross axis に落とす。シンプルに center/horizontal/vertical を扱う。
     
-    注意: MainAxisAlignment.center は SingleChildScrollView と衝突する可能性があるため、
-    スクロール可能なコンテンツでは start を使用する。
+    allow_center: Trueの場合、MainAxisAlignment.centerを許可（SingleChildScrollView外で使用）
     """
     g = (gravity or "").lower()
     main = "MainAxisAlignment.start"
     # crossAxisAlignment は stretch をデフォルトにする（TextField などの幅を広げるため）
     cross = "CrossAxisAlignment.stretch"
 
-    # MainAxisAlignment.center は SingleChildScrollView と衝突するため、start を使用
-    # 中央寄せが必要な場合は、個別の要素を Center でラップする
+    # MainAxisAlignment.center は SingleChildScrollView と衝突する可能性があるため、
+    # allow_centerがTrueの場合のみ使用
     if "center" in g:
         if orientation == "vertical":
-            # main は start のまま（スクロールビューとの互換性のため）
+            if allow_center:
+                main = "MainAxisAlignment.center"
             # cross は stretch のまま（TextField などの幅を広げるため）
-            # 個別の要素（ロゴなど）を Center でラップする必要がある場合は、後で処理
-            pass
         else:
             # horizontal の場合
             if "center_horizontal" in g or "center" in g:
-                main = "MainAxisAlignment.center"
+                if allow_center:
+                    main = "MainAxisAlignment.center"
             if "center_vertical" in g or "center" in g:
                 cross = "CrossAxisAlignment.center"
 
@@ -79,6 +220,48 @@ def _is_background_image_view(child_node: dict) -> bool:
     height = (child_attrs.get("layout_height") or "").lower()
     # match_parent または fill_parent の場合、背景画像の可能性が高い
     return width in ("match_parent", "fill_parent") and height in ("match_parent", "fill_parent")
+
+def _is_centered_in_constraint(child_attrs: dict) -> bool:
+    """ConstraintLayoutの子要素が上下左右すべてparentに制約されているか（中央配置）を判定"""
+    top = child_attrs.get("layout_constraintTop_toTopOf", "")
+    bottom = child_attrs.get("layout_constraintBottom_toBottomOf", "")
+    bottom_to_top = child_attrs.get("layout_constraintBottom_toTopOf", "")
+    top_to_bottom = child_attrs.get("layout_constraintTop_toBottomOf", "")
+    start = child_attrs.get("layout_constraintStart_toStartOf", "")
+    end = child_attrs.get("layout_constraintEnd_toEndOf", "")
+    
+    # 上下左右すべてが"parent"に制約されている場合、中央配置と判定
+    # または、Top/Bottomのどちらかがparentで、Vertical_biasがある場合も中央配置と判定
+    vertical_bias = child_attrs.get("layout_constraintVertical_bias")
+    horizontal_bias = child_attrs.get("layout_constraintHorizontal_bias")
+    
+    is_vertically_centered = (
+        (top == "parent" or top == "@id/parent") and 
+        (bottom == "parent" or bottom == "@id/parent")
+    ) or (
+        (top == "parent" or top == "@id/parent") and 
+        vertical_bias is not None
+    )
+    
+    is_horizontally_centered = (
+        (start == "parent" or start == "@id/parent") and 
+        (end == "parent" or end == "@id/parent")
+    ) or (
+        (start == "parent" or start == "@id/parent") and 
+        horizontal_bias is not None
+    )
+    
+    return is_vertically_centered and is_horizontally_centered
+
+def _get_constraint_bias(child_attrs: dict) -> tuple:
+    """ConstraintLayoutのbias値を取得（vertical_bias, horizontal_bias）"""
+    vertical_bias = child_attrs.get("layout_constraintVertical_bias")
+    horizontal_bias = child_attrs.get("layout_constraintHorizontal_bias")
+    
+    v_bias = float(vertical_bias) if vertical_bias else None
+    h_bias = float(horizontal_bias) if horizontal_bias else None
+    
+    return v_bias, h_bias
 
 def _get_background_images(children: list) -> tuple:
     """背景画像を検出し、分類する（full, top, bottom, foreground）"""
@@ -184,8 +367,37 @@ def translate_layout(node, resolver, logic_map=None, fragments_by_id=None, layou
     children = node.get("children", []) or []
 
     
-        # ========== ScrollView ==========
-    if t == "ScrollView":
+        # ========== ListView ==========
+    if t == "ListView":
+        # ListViewはFlutterのListView.builderに変換
+        # 子要素がある場合は、それらをitemsとして使用
+        if children:
+            dart_children = [translate_node(ch, resolver, logic_map=logic_map, fragments_by_id=fragments_by_id, layout_dir=layout_dir, values_dir=values_dir) for ch in children]
+            children_joined = ",\n".join(dart_children)
+            # ListView.builderを使用（実際のデータは後で追加する必要がある）
+            body = f"ListView.builder(itemCount: {len(children)}, itemBuilder: (context, index) {{ return {dart_children[0] if dart_children else 'SizedBox.shrink()'}; }})"
+        else:
+            # 空のListViewの場合は、空のListView.builderを生成
+            body = "ListView.builder(itemCount: 0, itemBuilder: (context, index) => SizedBox.shrink())"
+        return apply_layout_modifiers(body, attrs, resolver)
+    
+    # ========== HorizontalScrollView ==========
+    if t == "HorizontalScrollView" or t.endswith("HorizontalScrollView"):
+        dart_children = [translate_node(ch, resolver, logic_map=logic_map, fragments_by_id=fragments_by_id, layout_dir=layout_dir, values_dir=values_dir) for ch in children]
+        if len(dart_children) == 1:
+            # 子要素が1つの場合、SingleChildScrollViewでラップ（水平方向）
+            body = f"SingleChildScrollView(scrollDirection: Axis.horizontal, child: {dart_children[0]})"
+        elif len(dart_children) > 1:
+            # 子要素が複数の場合、RowでラップしてからSingleChildScrollViewでラップ（水平方向）
+            children_joined = ",\n".join(dart_children)
+            body = f"SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: [\n{indent(children_joined)}\n]))"
+        else:
+            # 子要素がない場合
+            body = "SingleChildScrollView(scrollDirection: Axis.horizontal, child: SizedBox.shrink())"
+        return apply_layout_modifiers(body, attrs, resolver)
+    
+    # ========== ScrollView / NestedScrollView ==========
+    if t == "ScrollView" or t == "NestedScrollView" or t.endswith("NestedScrollView"):
         dart_children = [translate_node(ch, resolver, logic_map=logic_map, fragments_by_id=fragments_by_id, layout_dir=layout_dir, values_dir=values_dir) for ch in children]
         if len(dart_children) == 1:
             # 子要素が1つの場合、SingleChildScrollViewでラップ
@@ -258,6 +470,7 @@ def translate_layout(node, resolver, logic_map=None, fragments_by_id=None, layou
     # ========== LinearLayout ==========
     if t == "LinearLayout":
         orientation = attrs.get("orientation", "vertical").lower()
+        gravity = attrs.get("gravity", "")
 
         dart_children_list = []
         for ch in children:
@@ -270,7 +483,12 @@ def translate_layout(node, resolver, logic_map=None, fragments_by_id=None, layou
             dart_children_list.append(child_code)
 
         children_joined = ",\n".join(dart_children_list)
-        main, cross = _axes_from_gravity_for_linear(attrs.get("gravity", ""), orientation)
+        # SingleChildScrollView外で使用する場合、centerを許可
+        # ただし、実際の使用コンテキストを確認する必要があるため、デフォルトはFalse
+        main, cross = _axes_from_gravity_for_linear(gravity, orientation, allow_center=False)
+        
+        # gravity="center"の場合、Centerでラップする
+        needs_center_wrap = "center" in gravity.lower() and orientation == "vertical"
 
         if orientation == "horizontal":
             # RowではcrossAxisAlignment.stretchは問題を起こしやすいため、centerを使用
@@ -283,10 +501,17 @@ def translate_layout(node, resolver, logic_map=None, fragments_by_id=None, layou
         else:
             # SingleChildScrollView内ではmainAxisSizeを指定しない（デフォルトのmaxを使用）
             # これにより、Columnが正しい高さを持つようになる
-            body = (
-                f"Column(mainAxisAlignment: {main}, crossAxisAlignment: {cross}, children: [\n"
-                f"{indent(children_joined)}\n])"
-            )
+            # gravity="center"の場合、Centerでラップ
+            if needs_center_wrap:
+                body = (
+                    f"Center(child: Column(mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: {cross}, children: [\n"
+                    f"{indent(children_joined)}\n]))"
+                )
+            else:
+                body = (
+                    f"Column(mainAxisAlignment: {main}, crossAxisAlignment: {cross}, children: [\n"
+                    f"{indent(children_joined)}\n])"
+                )
         return apply_layout_modifiers(body, attrs, resolver)
 
     # ========== FrameLayout ==========
@@ -368,14 +593,36 @@ def translate_layout(node, resolver, logic_map=None, fragments_by_id=None, layou
             # ========== RelativeLayout ==========
         return apply_layout_modifiers(body, attrs, resolver)
     if t == "RelativeLayout":
-        dart_children = [translate_node(ch, resolver, logic_map=logic_map, fragments_by_id=fragments_by_id, layout_dir=layout_dir, values_dir=values_dir) for ch in children]
-        body = f"Stack(children: [\n{indent(',\n'.join(dart_children))}\n])"
+        # RelativeLayoutをColumn構造に変換（layout_belowを処理）
+        # layout_belowがある場合はColumn、ない場合はStackを使用
+        has_layout_below = any(ch.get("attrs", {}).get("layout_below") for ch in children)
+        
+        if has_layout_below:
+            # layout_belowがある場合、Column構造に変換
+            body = _convert_relative_layout_to_column(children, resolver, logic_map=logic_map, fragments_by_id=fragments_by_id, layout_dir=layout_dir, values_dir=values_dir)
+        else:
+            # layout_belowがない場合、Stack構造に変換
+            dart_children = [translate_node(ch, resolver, logic_map=logic_map, fragments_by_id=fragments_by_id, layout_dir=layout_dir, values_dir=values_dir) for ch in children]
+            if dart_children:
+                body = f"Stack(children: [\n{indent(',\n'.join(dart_children))}\n])"
+            else:
+                body = "SizedBox.shrink()"
         return apply_layout_modifiers(body, attrs, resolver)
 
     # ========== ConstraintLayout ==========
     if t == "ConstraintLayout":
+        # android:background属性を背景画像として処理
+        background_attr = attrs.get("background")
+        has_background_attr = background_attr and not background_attr.startswith("#")
+        
         # 背景画像を検出し、分類する
         bg_full, bg_top, bg_bottom, foreground = _get_background_images(children)
+        
+        # android:background属性がある場合、背景画像として扱う
+        if has_background_attr and not bg_full:
+            # 背景画像として扱う（実際の画像リソースは後で処理）
+            bg_full = [{"type": "ImageView", "attrs": {"src": background_attr, "layout_width": "match_parent", "layout_height": "match_parent"}}]
+            foreground = children
         
         if bg_full or bg_top or bg_bottom:
             # 背景画像がある場合、Stack構造を生成
@@ -383,10 +630,22 @@ def translate_layout(node, resolver, logic_map=None, fragments_by_id=None, layou
             
             # 画面全体を覆う背景画像（1枚目のみ）
             if bg_full:
-                bg_image = translate_node(bg_full[0], resolver, logic_map=logic_map, fragments_by_id=fragments_by_id, layout_dir=layout_dir, values_dir=values_dir)
-                bg_attrs = bg_full[0].get("attrs", {}) or {}
-                bg_image = _get_background_image_with_cover(bg_image, bg_attrs)
-                stack_children.append(f"Positioned.fill(child: {bg_image})")
+                if isinstance(bg_full[0], dict) and bg_full[0].get("type") == "ImageView":
+                    # android:background属性から生成された背景画像
+                    bg_attrs = bg_full[0].get("attrs", {})
+                    src = bg_attrs.get("src", "")
+                    if src.startswith("@drawable/") or src.startswith("@mipmap/"):
+                        # リソース名を取得
+                        resource_name = src.split("/")[-1]
+                        bg_image_code = f"Image.asset('assets/images/{resource_name}.png', fit: BoxFit.cover, errorBuilder: (context, error, stackTrace) => Container(color: Colors.grey[300], child: Icon(Icons.image, size: 80, color: Colors.grey[600])))"
+                    else:
+                        bg_image_code = f"Image.asset('assets/images/{src}.png', fit: BoxFit.cover, errorBuilder: (context, error, stackTrace) => Container(color: Colors.grey[300], child: Icon(Icons.image, size: 80, color: Colors.grey[600])))"
+                    stack_children.append(f"Positioned.fill(child: {bg_image_code})")
+                else:
+                    bg_image = translate_node(bg_full[0], resolver, logic_map=logic_map, fragments_by_id=fragments_by_id, layout_dir=layout_dir, values_dir=values_dir)
+                    bg_attrs = bg_full[0].get("attrs", {}) or {}
+                    bg_image = _get_background_image_with_cover(bg_image, bg_attrs)
+                    stack_children.append(f"Positioned.fill(child: {bg_image})")
             
             # 上の飾り画像
             for bg_img_node in bg_top:
@@ -402,9 +661,40 @@ def translate_layout(node, resolver, logic_map=None, fragments_by_id=None, layou
                 bg_image = _get_background_image_with_cover(bg_image, bg_attrs)
                 stack_children.append(f"Positioned(bottom: 0, left: 0, right: 0, child: {bg_image})")
             
-            # 前景要素
-            foreground_children = [translate_node(ch, resolver, logic_map=logic_map, fragments_by_id=fragments_by_id, layout_dir=layout_dir, values_dir=values_dir) for ch in foreground]
-            stack_children.extend(foreground_children)
+            # 前景要素を処理（センタリングが必要な場合はCenterでラップ）
+            foreground_widgets = []
+            for ch in foreground:
+                child_code = translate_node(ch, resolver, logic_map=logic_map, fragments_by_id=fragments_by_id, layout_dir=layout_dir, values_dir=values_dir)
+                child_attrs = ch.get("attrs", {}) or {}
+                
+                # ConstraintLayoutの子要素が上下左右すべてparentに制約されている場合、Centerでラップ
+                if _is_centered_in_constraint(child_attrs):
+                    v_bias, h_bias = _get_constraint_bias(child_attrs)
+                    
+                    if v_bias is not None or h_bias is not None:
+                        # biasがある場合、Alignを使用
+                        alignment_parts = []
+                        if v_bias is not None:
+                            # vertical_bias: 0.0=top, 0.5=center, 1.0=bottom
+                            y = (v_bias - 0.5) * 2.0  # -1.0 to 1.0
+                            alignment_parts.append(f"y: {y:.2f}")
+                        if h_bias is not None:
+                            # horizontal_bias: 0.0=start, 0.5=center, 1.0=end
+                            x = (h_bias - 0.5) * 2.0  # -1.0 to 1.0
+                            alignment_parts.append(f"x: {x:.2f}")
+                        
+                        if alignment_parts:
+                            alignment_str = ", ".join(alignment_parts)
+                            child_code = f"Align(alignment: Alignment({alignment_str}), child: {child_code})"
+                        else:
+                            child_code = f"Center(child: {child_code})"
+                    else:
+                        # biasがない場合、Centerでラップ
+                        child_code = f"Center(child: {child_code})"
+                
+                foreground_widgets.append(child_code)
+            
+            stack_children.extend(foreground_widgets)
             
             if stack_children:
                 # Stackを直接使用（SingleChildScrollViewの外に配置されるため、高さ制約は問題ない）
@@ -417,9 +707,45 @@ def translate_layout(node, resolver, logic_map=None, fragments_by_id=None, layou
                 body = "SizedBox.shrink()"
         else:
             # 背景画像がない場合、通常のColumn構造
-            dart_children = [translate_node(ch, resolver, logic_map=logic_map, fragments_by_id=fragments_by_id, layout_dir=layout_dir, values_dir=values_dir) for ch in children]
-            # SingleChildScrollView内ではmainAxisSizeを指定しない（デフォルトのmaxを使用）
-        body = f"Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [\n{indent(',\n'.join(dart_children))}\n])"
+            # ただし、子要素がセンタリングされている場合は、Centerでラップ
+            dart_children = []
+            needs_center_wrap = False
+            
+            for ch in children:
+                child_code = translate_node(ch, resolver, logic_map=logic_map, fragments_by_id=fragments_by_id, layout_dir=layout_dir, values_dir=values_dir)
+                child_attrs = ch.get("attrs", {}) or {}
+                
+                # ConstraintLayoutの子要素が上下左右すべてparentに制約されている場合、Centerでラップ
+                if _is_centered_in_constraint(child_attrs):
+                    needs_center_wrap = True
+                    v_bias, h_bias = _get_constraint_bias(child_attrs)
+                    
+                    if v_bias is not None or h_bias is not None:
+                        # biasがある場合、Alignを使用
+                        alignment_parts = []
+                        if v_bias is not None:
+                            y = (v_bias - 0.5) * 2.0
+                            alignment_parts.append(f"y: {y:.2f}")
+                        if h_bias is not None:
+                            x = (h_bias - 0.5) * 2.0
+                            alignment_parts.append(f"x: {x:.2f}")
+                        
+                        if alignment_parts:
+                            alignment_str = ", ".join(alignment_parts)
+                            child_code = f"Align(alignment: Alignment({alignment_str}), child: {child_code})"
+                        else:
+                            child_code = f"Center(child: {child_code})"
+                    else:
+                        child_code = f"Center(child: {child_code})"
+                
+                dart_children.append(child_code)
+            
+            if needs_center_wrap and len(dart_children) == 1:
+                # 子要素が1つでセンタリングされている場合、Centerでラップ
+                body = f"Center(child: Column(mainAxisSize: MainAxisSize.min, mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.stretch, children: [\n{indent(dart_children[0])}\n]))"
+            else:
+                body = f"Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [\n{indent(',\n'.join(dart_children))}\n])"
+        
         return apply_layout_modifiers(body, attrs, resolver)
 
     # fallback
@@ -433,58 +759,22 @@ def translate_node(node: dict, resolver, logic_map=None, fragments_by_id=None, l
     attrs = node.get("attrs", {}) or {}
     children = node.get("children", []) or []
 
+    # includeタグの処理（既にパースされているので、そのまま変換）
+    if t == "include":
+        # includeタグは既にパースされて、インクルードされたレイアウトのルート要素になっている
+        # そのまま変換を続ける
+        pass
+    
     # === 追加: ConstraintLayout を Column にフォールバック ===
     if t in ("androidx.constraintlayout.widget.ConstraintLayout", "ConstraintLayout"):
-        # 背景画像を検出し、分類する
-        bg_full, bg_top, bg_bottom, foreground = _get_background_images(children)
-        
-        if bg_full or bg_top or bg_bottom:
-            # 背景画像がある場合、Stack構造を生成
-            stack_children = []
-            
-            # 画面全体を覆う背景画像（1枚目のみ）
-            if bg_full:
-                bg_image = translate_node(bg_full[0], resolver, logic_map=logic_map, fragments_by_id=fragments_by_id, layout_dir=layout_dir, values_dir=values_dir)
-                bg_attrs = bg_full[0].get("attrs", {}) or {}
-                bg_image = _get_background_image_with_cover(bg_image, bg_attrs)
-                stack_children.append(f"Positioned.fill(child: {bg_image})")
-            
-            # 上の飾り画像
-            for bg_img_node in bg_top:
-                bg_image = translate_node(bg_img_node, resolver, logic_map=logic_map, fragments_by_id=fragments_by_id, layout_dir=layout_dir, values_dir=values_dir)
-                bg_attrs = bg_img_node.get("attrs", {}) or {}
-                bg_image = _get_background_image_with_cover(bg_image, bg_attrs)
-                stack_children.append(f"Positioned(top: 0, left: 0, right: 0, child: {bg_image})")
-            
-            # 下の飾り画像
-            for bg_img_node in bg_bottom:
-                bg_image = translate_node(bg_img_node, resolver, logic_map=logic_map, fragments_by_id=fragments_by_id, layout_dir=layout_dir, values_dir=values_dir)
-                bg_attrs = bg_img_node.get("attrs", {}) or {}
-                bg_image = _get_background_image_with_cover(bg_image, bg_attrs)
-                stack_children.append(f"Positioned(bottom: 0, left: 0, right: 0, child: {bg_image})")
-            
-            # 前景要素
-            foreground_children = [translate_node(ch, resolver, logic_map=logic_map, fragments_by_id=fragments_by_id, layout_dir=layout_dir, values_dir=values_dir) for ch in foreground]
-            stack_children.extend(foreground_children)
-            
-            if stack_children:
-                # Stackを直接使用（SingleChildScrollViewの外に配置されるため、高さ制約は問題ない）
-                body = (
-                    f"Stack(children: [\n"
-                    f"{indent(',\n'.join(stack_children))}\n"
-                    f"])"
-                )
-            else:
-                body = "SizedBox.shrink()"
-        else:
-            # 背景画像がない場合、通常のColumn構造
-            child_widgets = [translate_node(ch, resolver, logic_map=logic_map, fragments_by_id=fragments_by_id, layout_dir=layout_dir, values_dir=values_dir) for ch in children]
-            # SingleChildScrollView内ではmainAxisSizeを指定しない（デフォルトのmaxを使用）
-            body = "Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [\n  " \
-               + ",\n  ".join(child_widgets) + "\n])"
-        return apply_layout_modifiers(body, attrs, resolver)
-    
-    if t in ("LinearLayout", "FrameLayout", "RelativeLayout", "ConstraintLayout", "ScrollView", "TableLayout", "TableRow", "RadioGroup"):
+        # translate_layout関数に委譲（同じ処理を共有）
         return translate_layout(node, resolver, logic_map=logic_map, fragments_by_id=fragments_by_id, layout_dir=layout_dir, values_dir=values_dir)
+    
+    if t in ("LinearLayout", "FrameLayout", "RelativeLayout", "ConstraintLayout", "ScrollView", "HorizontalScrollView", "NestedScrollView", "ListView", "TableLayout", "TableRow", "RadioGroup"):
+        return translate_layout(node, resolver, logic_map=logic_map, fragments_by_id=fragments_by_id, layout_dir=layout_dir, values_dir=values_dir)
+    # NestedScrollViewも処理（androidx.core.widget.NestedScrollViewなど）
+    if t.endswith("NestedScrollView") or t.endswith("HorizontalScrollView"):
+        return translate_layout(node, resolver, logic_map=logic_map, fragments_by_id=fragments_by_id, layout_dir=layout_dir, values_dir=values_dir)
+    # カスタムViewや標準Viewはview_rulesに委譲（循環インポートを避けるため、ここでインポート）
     from translator.view_rules import translate_view
-    return translate_view(node, resolver, logic_map)
+    return translate_view(node, resolver, logic_map=logic_map, fragments_by_id=fragments_by_id, layout_dir=layout_dir, values_dir=values_dir)

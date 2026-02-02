@@ -246,6 +246,46 @@ def _extract_handlers_from_src(src: str, var2id: Dict[str, str], id_set: set) ->
     return handlers
 
 
+def extract_methods(java_root: str) -> Dict[str, str]:
+    """
+    Javaファイルからメソッド定義を抽出する。
+    戻り値: {メソッド名: メソッド本体} の辞書
+    """
+    root = Path(java_root)
+    java_files = list(root.rglob("*.java"))
+    methods: Dict[str, str] = {}
+    
+    for jf in java_files:
+        src = jf.read_text(encoding="utf-8", errors="ignore")
+        # private/protected/public void メソッド名(...) { ... } を抽出
+        # より堅牢なパターン：ネストされた{}を考慮
+        method_pattern = re.compile(
+            r'(?:private|public|protected)?\s*void\s+(\w+)\s*\([^)]*\)\s*\{',
+            re.MULTILINE
+        )
+        
+        for match in method_pattern.finditer(src):
+            method_name = match.group(1)
+            start_pos = match.end()
+            
+            # 対応する閉じ括弧を見つける（ネストを考慮）
+            brace_count = 1
+            pos = start_pos
+            while pos < len(src) and brace_count > 0:
+                if src[pos] == '{':
+                    brace_count += 1
+                elif src[pos] == '}':
+                    brace_count -= 1
+                pos += 1
+            
+            if brace_count == 0:
+                method_body = src[start_pos:pos-1].strip()
+                if method_body and method_name not in methods:
+                    methods[method_name] = method_body
+    
+    return methods
+
+
 def extract_click_handlers(java_root: str, xml_ids: List[str]) -> Dict[str, ClickHandlerIR]:
     """
     java_root 以下の .java を全部見て、
