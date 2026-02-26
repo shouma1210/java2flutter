@@ -4,9 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 {% endif %}
 
-{# ===============================
-   オプションの既定値（Jinja 側）
-   =============================== #}
+
 {% set is_stateful      = options.is_stateful      | default(false) %}
 {% set use_scrollview   = options.use_scrollview   | default(true)  %}
 {% set use_safearea     = options.use_safearea     | default(false) %}
@@ -26,13 +24,11 @@ class {{ class_name }} extends {% if is_stateful %}StatefulWidget{% else %}State
 }
 
 class _{{ class_name }}State extends State<{{ class_name }}> {
-  {# ---- Controller部分を自動生成（必要数だけ） ---- #}
+
   {% for c in controllers %}
   final TextEditingController {{ c }} = TextEditingController();
   {% endfor %}
   
-  {# ---- RadioGroup用の状態変数（必要に応じて追加） ---- #}
-  String _selectedMood = "😊";
 
   {% if controllers %}
   @override
@@ -48,7 +44,7 @@ class _{{ class_name }}State extends State<{{ class_name }}> {
   Widget build(BuildContext context) {
     Widget content = {{ widget_tree }};
 
-    {# ---- 余白（画面外側） ---- #}
+
     {% if page_padding > 0.0 %}
     content = Padding(
       padding: const EdgeInsets.all({{ page_padding }}),
@@ -56,11 +52,9 @@ class _{{ class_name }}State extends State<{{ class_name }}> {
     );
     {% endif %}
 
-    {# ---- ScrollView ラップ（必要時のみ、Stackの場合は外に配置） ---- #}
+   
     {% if use_scrollview %}
     {% if options.has_stack_background or options.has_expanded %}
-    {# StackまたはExpandedがある場合、SingleChildScrollViewの外に配置 ---- #}
-    {# ExpandedはRow/Columnの直接の子である必要があるため、SingleChildScrollViewでラップできない ---- #}
     {% else %}
     content = SingleChildScrollView(
       child: content,
@@ -68,7 +62,6 @@ class _{{ class_name }}State extends State<{{ class_name }}> {
     {% endif %}
     {% endif %}
 
-    {# ---- キーボードで隠れにくくする＋外タップでDismiss ---- #}
     {% if keyboard_dismiss %}
     content = GestureDetector(
       behavior: HitTestBehavior.translucent,
@@ -77,16 +70,14 @@ class _{{ class_name }}State extends State<{{ class_name }}> {
     );
     {% endif %}
 
-    {# ---- Scaffold で包む ---- #}
+
     {% if use_scaffold %}
     {% if options.scaffold_bg_decoration %}
-    {# XML drawableの背景がある場合はContainerでBoxDecorationを使用 #}
     content = Container(
       decoration: {{ options.scaffold_bg_decoration }},
       child: content,
     );
     {% elif options.scaffold_bg_image %}
-    {# 背景画像がある場合はStack構造を使用（背景を背面に、UIを前景に） #}
     content = Stack(
       children: [
         Positioned.fill(
@@ -110,7 +101,7 @@ class _{{ class_name }}State extends State<{{ class_name }}> {
       {% endif %}
       body: SafeArea(
         child: Padding(
-        {# ソフトキーボード分の下余白。スクロール無し画面でも被りにくい #}
+
         padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
         child: content,
         ),
@@ -125,7 +116,7 @@ class _{{ class_name }}State extends State<{{ class_name }}> {
   {{ handlers_code }}
   {% endif %}
 }
-  {% else %} {# ------------ Stateless 版 ------------ #}
+  {% else %} 
   @override
   Widget build(BuildContext context) {
     Widget content = {{ widget_tree }};
@@ -139,8 +130,6 @@ class _{{ class_name }}State extends State<{{ class_name }}> {
 
     {% if use_scrollview %}
     {% if options.has_stack_background or options.has_expanded %}
-    {# StackまたはExpandedがある場合、SingleChildScrollViewの外に配置 ---- #}
-    {# ExpandedはRow/Columnの直接の子である必要があるため、SingleChildScrollViewでラップできない ---- #}
     {% else %}
     content = SingleChildScrollView(
       child: content,
@@ -158,13 +147,12 @@ class _{{ class_name }}State extends State<{{ class_name }}> {
 
     {% if use_scaffold %}
     {% if options.scaffold_bg_decoration %}
-    {# XML drawableの背景がある場合はContainerでBoxDecorationを使用 #}
     content = Container(
       decoration: {{ options.scaffold_bg_decoration }},
       child: content,
     );
     {% elif options.scaffold_bg_image %}
-    {# 背景画像がある場合はStack構造を使用（背景を背面に、UIを前景に） #}
+
     content = Stack(
       children: [
         Positioned.fill(
@@ -208,6 +196,5 @@ class _{{ class_name }}State extends State<{{ class_name }}> {
   {% if handlers_code %}
   {{ handlers_code }}
   {% endif %}
-}
 {% endif %}
 {% endraw %}
