@@ -1,5 +1,5 @@
-from parser.resource_resolver import ResourceResolver
-from utils import indent, apply_layout_modifiers, escape_dart, get_asset_path_from_drawable, _parse_shape_drawable_to_boxdecoration, _parse_dimen
+from ..parser.resource_resolver import ResourceResolver
+from ..utils import indent, apply_layout_modifiers, escape_dart, get_asset_path_from_drawable, _parse_shape_drawable_to_boxdecoration, _parse_dimen
 
 def _id_base(v: str) -> str:
     if not v:
@@ -98,7 +98,7 @@ def translate_view(node: dict, resolver, logic_map=None, fragments_by_id=None, l
     
     if t in CARDVIEW_TYPES or t.endswith("CardView") or t.endswith("MaterialCardView"):
 
-        from translator.layout_rules import translate_node
+        from .layout_rules import translate_node
         dart_children = []
         if children:
             for ch in children:
@@ -578,7 +578,7 @@ def translate_view(node: dict, resolver, logic_map=None, fragments_by_id=None, l
     custom_view_info = None
     if hasattr(resolver, '_java_root') and resolver._java_root:
         try:
-            from parser.custom_view_analyzer import get_custom_view_info, find_custom_views_in_project
+            from ..parser.custom_view_analyzer import get_custom_view_info, find_custom_views_in_project
 
             custom_view_info = get_custom_view_info(full_class_name, resolver._java_root)
 
@@ -673,7 +673,7 @@ def translate_view(node: dict, resolver, logic_map=None, fragments_by_id=None, l
         
         else:
 
-            from translator.layout_rules import translate_node
+            from .layout_rules import translate_node
             dart_children = []
             if children:
                 for ch in children:
@@ -701,7 +701,7 @@ def translate_view(node: dict, resolver, logic_map=None, fragments_by_id=None, l
             body = custom_view_mapping[display_name]
         else:
 
-            from translator.layout_rules import translate_node
+            from .layout_rules import translate_node
             dart_children = []
             if children:
                 for ch in children:

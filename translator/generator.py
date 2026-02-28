@@ -5,9 +5,9 @@ import re
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Set
 
-from parser.xml_parser import parse_layout_xml
-from parser.resource_resolver import ResourceResolver
-from parser.java_parser import (
+from ..parser.xml_parser import parse_layout_xml
+from ..parser.resource_resolver import ResourceResolver
+from ..parser.java_parser import (
     extract_click_handlers,
     extract_fragments,
     extract_methods,
@@ -19,7 +19,7 @@ from parser.java_parser import (
     RawStmt,
 )
 
-from translator.layout_rules import translate_node
+from .layout_rules import translate_node
 
 try:
     from jinja2 import Environment, FileSystemLoader
@@ -372,7 +372,7 @@ def _java_ast_block_to_dart(block: Block, known_imports: Set[str]) -> str:
                         
                         lines.append(f"if ({cond}) {{")
 
-                        from parser.java_parser import Block, _append_simple_statements
+                        from ..parser.java_parser import Block, _append_simple_statements
                         then_block = Block()
                         _append_simple_statements(then_block, then_body)
                         inner = _java_ast_block_to_dart(then_block, known_imports)
@@ -631,7 +631,7 @@ def _java_ast_block_to_dart(block: Block, known_imports: Set[str]) -> str:
                     positive_match = re.search(r'setPositiveButton\s*\(\s*["\']([^"\']+)["\']', txt)
                     negative_match = re.search(r'setNegativeButton\s*\(\s*["\']([^"\']+)["\']', txt)
                     
-                    from utils import escape_dart
+                    from ..utils import escape_dart
                     title = title_match.group(1) if title_match else "Alert"
                     message = message_match.group(1) if message_match else ""
                     positive_text = positive_match.group(1) if positive_match else "OK"
@@ -778,24 +778,60 @@ def _render_screen_with_template(
     controllers: List[str],
     options: Optional[dict] = None,
 ) -> str:
+    """
+    Render a Dart screen either via Jinja2 template (if available) or via
+    a simple built-in fallback template.
+
+    Parameters
+    ----------
+    class_name: name of the root widget class.
+    widget_tree: Dart expression representing the widget tree used as body.
+    handlers_code: Dart code for event handlers and auxiliary methods.
+    controllers: list of TextEditingController variable names that should
+                 be declared and disposed when using a StatefulWidget.
+    options: extra flags controlling generation; expected keys include:
+        - is_stateful (bool): whether to generate StatefulWidget.
+        - imports (List[str]): symbolic set of things used (Navigator, etc.).
+        - other layout/behavior flags (ignored by the fallback).
+    """
     tmpl = _load_template()
+    options = options or {}
     ctx = {
         "class_name": class_name,
         "widget_tree": widget_tree,
         "handlers_code": handlers_code,
         "controllers": controllers,
-        "options": options or {},
+        "options": options,
     }
-    is_stateful = options.get("is_stateful", False)
-    imports_list = options.get("imports", [])
+
+    is_stateful = bool(options.get("is_stateful", False))
+    imports_list = options.get("imports", []) or []
+
+    # Base import; for now we assume everything is covered by material.dart.
     imports_str = "import 'package:flutter/material.dart';"
-    if imports_list:
 
-        pass
-
+    # Fallback path: no Jinja2 or no template file.
     if tmpl is None:
+        # Prepare handler block with proper indentation inside the class.
+        handlers_block = handlers_code or ""
+        if handlers_block:
+            handlers_block = _indent(handlers_block, 2)
+
+        # Controller fields + dispose() if any controllers are required.
+        controller_fields = ""
+        dispose_body = ""
+        if controllers:
+            controller_fields = "\n".join(
+                f"  final TextEditingController {name} = TextEditingController();"
+                for name in controllers
+            )
+            dispose_body = "\n".join(
+                f"    {name}.dispose();"
+                for name in controllers
+            )
 
         if is_stateful:
+            # Generate a minimal but valid StatefulWidget implementation.
             return f"""{imports_str}
 
 class {class_name} extends StatefulWidget {{
@@ -806,6 +842,13 @@ class {class_name} extends StatefulWidget {{
 }}
 
 class _{class_name}State extends State<{class_name}> {{
+{controller_fields}
+  @override
+  void dispose() {{
+{dispose_body}
+    super.dispose();
+  }}
+
   @override
   Widget build(BuildContext context) {{
     return Scaffold(
@@ -814,9 +857,31 @@ class _{class_name}State extends State<{class_name}> {{
   }}
 
   // ===== Auto-Generated Handlers =====
-  {handlers_code}
+{handlers_block}
 }}
+"""
+        else:
+            # Simpler StatelessWidget version.
+            return f"""{imports_str}
+
+class {class_name} extends StatelessWidget {{
+  const {class_name}({{super.key}});
+
+  @override
+  Widget build(BuildContext context) {{
+    return Scaffold(
+      body: {widget_tree},
+    );
+  }}
+
+  // ===== Auto-Generated Handlers =====
+{handlers_block}
+}}
+"""
+
+    # Normal path: use Jinja2 template.
     return tmpl.render(**ctx)
+
 
 def _build_logic_and_handlers(ir: UnifiedScreenIR, class_name: str, java_methods: Dict[str, str] = None):
     if java_methods is None:
@@ -884,7 +949,7 @@ def _build_logic_and_handlers(ir: UnifiedScreenIR, class_name: str, java_methods
                 body = "// Button handler"
             else:
 
-                from parser.java_parser import _parse_block_to_ast
+                from ..parser.java_parser import _parse_block_to_ast
                 method_ast = _parse_block_to_ast(method_body)
                 body = _java_ast_block_to_dart(method_ast, imports)
 
@@ -916,7 +981,7 @@ def _build_logic_and_handlers(ir: UnifiedScreenIR, class_name: str, java_methods
             if any(keyword in method_body for keyword in ["RecyclerView", "setAdapter", "Adapter", "loadJournals", "performSearch"]):
                 continue
 
-        from parser.java_parser import _parse_block_to_ast
+        from ..parser.java_parser import _parse_block_to_ast
         method_ast = _parse_block_to_ast(method_body)
         method_dart_body = _java_ast_block_to_dart(method_ast, imports)
 
@@ -994,14 +1059,14 @@ def generate_dart_code(
 
             if drawable_path.lower().endswith(".xml"):
 
-                from utils import _parse_shape_drawable_to_boxdecoration
+                from ..utils import _parse_shape_drawable_to_boxdecoration
                 root_bg_decoration = _parse_shape_drawable_to_boxdecoration(drawable_path, resolver)
 
                 if root_bg_decoration:
                     unified.xml_ir["attrs"] = {k: v for k, v in root_attrs.items() if k != "background"}
             else:
 
-                from utils import get_asset_path_from_drawable
+                from ..utils import get_asset_path_from_drawable
                 root_bg_image = get_asset_path_from_drawable(drawable_path)
 
                 unified.xml_ir["attrs"] = {k: v for k, v in root_attrs.items() if k != "background"}

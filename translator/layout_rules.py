@@ -1,7 +1,7 @@
-
-from parser.resource_resolver import ResourceResolver
+from ..parser.resource_resolver import ResourceResolver
+from ..parser.xml_parser import parse_layout_xml
 import os
-from utils import indent, apply_layout_modifiers
+from ..utils import indent, apply_layout_modifiers
 
 def _wrap_match_parent_for_linear(child_code: str, child_attrs: dict, parent_orientation: str) -> str:
 
@@ -472,7 +472,7 @@ def translate_layout(node, resolver, logic_map=None, fragments_by_id=None, layou
                         fragment_layout_path = os.path.join(layout_dir, fragment_ir.layout_file)
                         if os.path.exists(fragment_layout_path):
 
-                            from parser.xml_parser import parse_layout_xml
+                            from ..parser.xml_parser import parse_layout_xml
                             try:
                                 fragment_ir_tree, fragment_resolver = parse_layout_xml(fragment_layout_path, values_dir)
 
@@ -705,5 +705,5 @@ def translate_node(node: dict, resolver, logic_map=None, fragments_by_id=None, l
     if t.endswith("NestedScrollView") or t.endswith("HorizontalScrollView"):
         return translate_layout(node, resolver, logic_map=logic_map, fragments_by_id=fragments_by_id, layout_dir=layout_dir, values_dir=values_dir)
 
-    from translator.view_rules import translate_view
+    from .view_rules import translate_view
     return translate_view(node, resolver, logic_map=logic_map, fragments_by_id=fragments_by_id, layout_dir=layout_dir, values_dir=values_dir)
