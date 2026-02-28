@@ -5,7 +5,7 @@ import os
 from typing import Any, Dict, Optional
 from lxml import etree
 
-from parser.resource_resolver import ResourceResolver
+from .parser.resource_resolver import ResourceResolver
 
 
 def indent(code: str, spaces: int = 2) -> str:
