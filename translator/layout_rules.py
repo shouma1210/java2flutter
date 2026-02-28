@@ -1,7 +1,82 @@
 from ..parser.resource_resolver import ResourceResolver
 from ..parser.xml_parser import parse_layout_xml
 import os
-from ..utils import indent, apply_layout_modifiers
+from ..utils import indent, apply_layout_modifiers, get_asset_path_from_drawable
+
+
+def _resolve_layout_path(layout_attr, layout_dir):
+
+    if not layout_attr or not layout_dir:
+        return None
+
+    name = layout_attr
+    if name.startswith("@layout/"):
+        name = name.split("/")[-1]
+    elif name.startswith("@android:layout/"):
+        name = name.split("/")[-1]
+
+    candidates = []
+
+    candidates.append(os.path.join(layout_dir, f"{name}.xml"))
+
+    res_dir = os.path.dirname(layout_dir)
+    if res_dir:
+        candidates.append(os.path.join(res_dir, "layout", f"{name}.xml"))
+
+    for path in candidates:
+        if path and os.path.exists(path):
+            return path
+
+    return None
+
+
+def _unwrap_document(ir):
+
+    if not ir:
+        return []
+    t = ir.get("type")
+    if t == "document":
+        return ir.get("children") or []
+    return [ir]
+
+
+def _translate_included_layout(layout_attr, attrs, resolver, logic_map, fragments_by_id, layout_dir, values_dir):
+
+    layout_path = _resolve_layout_path(layout_attr, layout_dir)
+    if not layout_path:
+        return "SizedBox.shrink()"
+
+    try:
+        include_ir, include_resolver = parse_layout_xml(layout_path, values_dir)
+    except Exception:
+        return "SizedBox.shrink()"
+
+    effective_resolver = include_resolver or resolver
+    include_children = _unwrap_document(include_ir)
+
+    dart_children = []
+    for ch in include_children:
+        dart_children.append(
+            translate_node(
+                ch,
+                effective_resolver,
+                logic_map=logic_map,
+                fragments_by_id=fragments_by_id,
+                layout_dir=os.path.dirname(layout_path),
+                values_dir=values_dir,
+            )
+        )
+
+    if not dart_children:
+        body = "SizedBox.shrink()"
+    elif len(dart_children) == 1:
+        body = dart_children[0]
+    else:
+        children_joined = ",\n".join(dart_children)
+        body = f"Column(children: [\n{indent(children_joined)}\n])"
+
+    return apply_layout_modifiers(body, attrs, resolver)
+
 
 def _wrap_match_parent_for_linear(child_code: str, child_attrs: dict, parent_orientation: str) -> str:
 
@@ -328,13 +403,37 @@ def translate_layout(node, resolver, logic_map=None, fragments_by_id=None, layou
     if t == "ListView":
 
         if children:
-            dart_children = [translate_node(ch, resolver, logic_map=logic_map, fragments_by_id=fragments_by_id, layout_dir=layout_dir, values_dir=values_dir) for ch in children]
-            children_joined = ",\n".join(dart_children)
+            dart_children = [
+                translate_node(
+                    ch,
+                    resolver,
+                    logic_map=logic_map,
+                    fragments_by_id=fragments_by_id,
+                    layout_dir=layout_dir,
+                    values_dir=values_dir,
+                )
+                for ch in children
+            ]
 
-            body = f"ListView.builder(itemCount: {len(children)}, itemBuilder: (context, index) {{ return {dart_children[0] if dart_children else 'SizedBox.shrink()'}; }})"
+            item_body = dart_children[0] if dart_children else "SizedBox.shrink()"
+            body = (
+                "ListView.builder("
+                "shrinkWrap: true, "
+                "physics: NeverScrollableScrollPhysics(), "
+                f"itemCount: {len(children)}, "
+                f"itemBuilder: (context, index) => {item_body},"
+                ")"
+            )
         else:
 
-            body = "ListView.builder(itemCount: 0, itemBuilder: (context, index) => SizedBox.shrink())"
+            body = (
+                "ListView.builder("
+                "shrinkWrap: true, "
+                "physics: NeverScrollableScrollPhysics(), "
+                "itemCount: 0, "
+                "itemBuilder: (context, index) => SizedBox.shrink(),"
+                ")"
+            )
         return apply_layout_modifiers(body, attrs, resolver)
 
     if t == "HorizontalScrollView" or t.endswith("HorizontalScrollView"):
@@ -552,7 +651,7 @@ def translate_layout(node, resolver, logic_map=None, fragments_by_id=None, layou
                 body = "SizedBox.shrink()"
         return apply_layout_modifiers(body, attrs, resolver)
 
-    if t == "ConstraintLayout":
+    if t in ("androidx.constraintlayout.widget.ConstraintLayout", "ConstraintLayout"):
 
         background_attr = attrs.get("background")
         has_background_attr = background_attr and not background_attr.startswith("#")
@@ -571,14 +670,35 @@ def translate_layout(node, resolver, logic_map=None, fragments_by_id=None, layou
             if bg_full:
                 if isinstance(bg_full[0], dict) and bg_full[0].get("type") == "ImageView":
 
-                    bg_attrs = bg_full[0].get("attrs", {})
-                    src = bg_attrs.get("src", "")
-                    if src.startswith("@drawable/") or src.startswith("@mipmap/"):
+                    bg_attrs = bg_full[0].get("attrs", {}) or {}
+                    src = bg_attrs.get("src", "") or bg_attrs.get("android:src", "")
 
-                        resource_name = src.split("/")[-1]
-                        bg_image_code = f"Image.asset('assets/images/{resource_name}.png', fit: BoxFit.cover, errorBuilder: (context, error, stackTrace) => Container(color: Colors.grey[300], child: Icon(Icons.image, size: 80, color: Colors.grey[600])))"
-                    else:
-                        bg_image_code = f"Image.asset('assets/images/{src}.png', fit: BoxFit.cover, errorBuilder: (context, error, stackTrace) => Container(color: Colors.grey[300], child: Icon(Icons.image, size: 80, color: Colors.grey[600])))"
+                    bg_image_code = None
+                    if resolver and src:
+                        drawable_path = resolver.resolve_drawable_path(src)
+                        if drawable_path:
+                            asset_path = get_asset_path_from_drawable(drawable_path)
+                            if asset_path:
+                                bg_image_code = (
+                                    f"Image.asset('{asset_path}', fit: BoxFit.cover, "
+                                    f"errorBuilder: (context, error, stackTrace) => "
+                                    f"Container(color: Colors.grey[300], "
+                                    f"child: Icon(Icons.image, size: 80, color: Colors.grey[600])))"
+                                )
+
+                    if bg_image_code is None:
+                        if src.startswith("@drawable/") or src.startswith("@mipmap/"):
+                            resource_name = src.split("/")[-1]
+                            asset_path = f"assets/images/{resource_name}.png"
+                        else:
+                            asset_path = f"assets/images/{src}.png"
+                        bg_image_code = (
+                            f"Image.asset('{asset_path}', fit: BoxFit.cover, "
+                            f"errorBuilder: (context, error, stackTrace) => "
+                            f"Container(color: Colors.grey[300], "
+                            f"child: Icon(Icons.image, size: 80, color: Colors.grey[600])))"
+                        )
+
                     stack_children.append(f"Positioned.fill(child: {bg_image_code})")
                 else:
                     bg_image = translate_node(bg_full[0], resolver, logic_map=logic_map, fragments_by_id=fragments_by_id, layout_dir=layout_dir, values_dir=values_dir)
@@ -686,14 +806,69 @@ def translate_layout(node, resolver, logic_map=None, fragments_by_id=None, layou
     body = f"Column(children: [\n{indent(',\n'.join(dart_children))}\n])"
     return apply_layout_modifiers(body, attrs, resolver)
 
-def translate_node(node: dict, resolver, logic_map=None, fragments_by_id=None, layout_dir=None, values_dir=None):
+def translate_node(
+    node: dict,
+    resolver,
+    logic_map=None,
+    fragments_by_id=None,
+    layout_dir=None,
+    values_dir=None,
+    **_ignored_extra_kwargs,
+):
     t = (node.get("type") or "")
     attrs = node.get("attrs", {}) or {}
     children = node.get("children", []) or []
 
     if t == "include":
 
-        pass
+        layout_ref = attrs.get("layout") or attrs.get("android:layout")
+        return _translate_included_layout(
+            layout_ref,
+            attrs,
+            resolver,
+            logic_map,
+            fragments_by_id,
+            layout_dir,
+            values_dir,
+        )
+
+    if t == "merge":
+
+        dart_children = [
+            translate_node(
+                ch,
+                resolver,
+                logic_map=logic_map,
+                fragments_by_id=fragments_by_id,
+                layout_dir=layout_dir,
+                values_dir=values_dir,
+            )
+            for ch in children
+        ]
+        if not dart_children:
+            body = "SizedBox.shrink()"
+        elif len(dart_children) == 1:
+            body = dart_children[0]
+        else:
+            body = f"Column(children: [\n{indent(',\n'.join(dart_children))}\n])"
+
+        return apply_layout_modifiers(body, attrs, resolver)
+
+    if t == "ViewStub" or t.endswith("ViewStub"):
+
+        layout_ref = attrs.get("layout") or attrs.get("android:layout")
+        if layout_ref:
+            return _translate_included_layout(
+                layout_ref,
+                attrs,
+                resolver,
+                logic_map,
+                fragments_by_id,
+                layout_dir,
+                values_dir,
+            )
+
+        return "SizedBox.shrink()"
 
     if t in ("androidx.constraintlayout.widget.ConstraintLayout", "ConstraintLayout"):
 
