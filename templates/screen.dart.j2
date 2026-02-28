@@ -1,19 +1,10 @@
-{% raw %}
 import 'package:flutter/material.dart';
 {% if 'intl' in options.imports or 'DateFormat' in handlers_code %}
 import 'package:intl/intl.dart';
 {% endif %}
 
-
-{% set is_stateful      = options.is_stateful      | default(false) %}
-{% set use_scrollview   = options.use_scrollview   | default(true)  %}
-{% set use_safearea     = options.use_safearea     | default(false) %}
-{% set add_appbar       = options.add_appbar       | default(true)  %}
-{% set appbar_title     = options.appbar_title     | default(class_name) %}
-{% set use_scaffold     = options.use_scaffold     | default(true)  %}
-{% set keyboard_dismiss = options.keyboard_dismiss | default(true)  %}
-{% set page_padding     = options.page_padding     | default(16.0)   %}
-{% set stretch          = options.stretch          | default(true)  %}
+{% set is_stateful = options.is_stateful | default(true) %}
+{% set force_min_height = options.force_min_height | default(false) %}
 
 class {{ class_name }} extends {% if is_stateful %}StatefulWidget{% else %}StatelessWidget{% endif %} {
   const {{ class_name }}({super.key});
@@ -24,13 +15,10 @@ class {{ class_name }} extends {% if is_stateful %}StatefulWidget{% else %}State
 }
 
 class _{{ class_name }}State extends State<{{ class_name }}> {
-
   {% for c in controllers %}
   final TextEditingController {{ c }} = TextEditingController();
   {% endfor %}
-  
 
-  {% if controllers %}
   @override
   void dispose() {
     {% for c in controllers %}
@@ -38,163 +26,47 @@ class _{{ class_name }}State extends State<{{ class_name }}> {
     {% endfor %}
     super.dispose();
   }
-  {% endif %}
 
   @override
   Widget build(BuildContext context) {
-    Widget content = {{ widget_tree }};
-
-
-    {% if page_padding > 0.0 %}
-    content = Padding(
-      padding: const EdgeInsets.all({{ page_padding }}),
+    final content = {{ widget_tree }};
+    final body = {% if force_min_height %}ConstrainedBox(
+      constraints: BoxConstraints(
+        minHeight: MediaQuery.of(context).size.height,
+      ),
       child: content,
-    );
-    {% endif %}
-
-   
-    {% if use_scrollview %}
-    {% if options.has_stack_background or options.has_expanded %}
-    {% else %}
-    content = SingleChildScrollView(
-      child: content,
-    );
-    {% endif %}
-    {% endif %}
-
-    {% if keyboard_dismiss %}
-    content = GestureDetector(
-      behavior: HitTestBehavior.translucent,
-      onTap: () => FocusScope.of(context).unfocus(),
-      child: content,
-    );
-    {% endif %}
-
-
-    {% if use_scaffold %}
-    {% if options.scaffold_bg_decoration %}
-    content = Container(
-      decoration: {{ options.scaffold_bg_decoration }},
-      child: content,
-    );
-    {% elif options.scaffold_bg_image %}
-    content = Stack(
-      children: [
-        Positioned.fill(
-          child: Image.asset(
-            '{{ options.scaffold_bg_image }}',
-            fit: BoxFit.cover,
-            errorBuilder: (context, error, stackTrace) => Container(
-              color: Colors.grey[300],
-              child: Icon(Icons.image, size: 80, color: Colors.grey[600]),
-            ),
-          ),
-        ),
-        content,
-      ],
-    );
-    {% endif %}
+    ){% else %}content{% endif %};
     return Scaffold(
-      {% if add_appbar %}appBar: AppBar(title: Text('{{ appbar_title }}')), {% endif %}
-      {% if options.scaffold_bg_color %}
-      backgroundColor: const Color({{ options.scaffold_bg_color }}),
-      {% endif %}
+      backgroundColor: Colors.white,
       body: SafeArea(
-        child: Padding(
-
-        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-        child: content,
+        child: SingleChildScrollView(
+          child: body,
         ),
       ),
     );
-    {% else %}
-    return content;
-    {% endif %}
   }
-
-  {% if handlers_code %}
-  {{ handlers_code }}
-  {% endif %}
 }
-  {% else %} 
+  {% else %}
+
   @override
   Widget build(BuildContext context) {
-    Widget content = {{ widget_tree }};
-
-    {% if page_padding > 0.0 %}
-    content = Padding(
-      padding: const EdgeInsets.all({{ page_padding }}),
+    final content = {{ widget_tree }};
+    final body = {% if force_min_height %}ConstrainedBox(
+      constraints: BoxConstraints(
+        minHeight: MediaQuery.of(context).size.height,
+      ),
       child: content,
-    );
-    {% endif %}
-
-    {% if use_scrollview %}
-    {% if options.has_stack_background or options.has_expanded %}
-    {% else %}
-    content = SingleChildScrollView(
-      child: content,
-    );
-    {% endif %}
-    {% endif %}
-
-    {% if keyboard_dismiss %}
-    content = GestureDetector(
-      behavior: HitTestBehavior.translucent,
-      onTap: () => FocusScope.of(context).unfocus(),
-      child: content,
-    );
-    {% endif %}
-
-    {% if use_scaffold %}
-    {% if options.scaffold_bg_decoration %}
-    content = Container(
-      decoration: {{ options.scaffold_bg_decoration }},
-      child: content,
-    );
-    {% elif options.scaffold_bg_image %}
-
-    content = Stack(
-      children: [
-        Positioned.fill(
-          child: Image.asset(
-            '{{ options.scaffold_bg_image }}',
-            fit: BoxFit.cover,
-            errorBuilder: (context, error, stackTrace) => Container(
-              color: Colors.grey[300],
-              child: Icon(Icons.image, size: 80, color: Colors.grey[600]),
-            ),
-          ),
-        ),
-        content,
-      ],
-    );
-    {% endif %}
+    ){% else %}content{% endif %};
     return Scaffold(
-      {% if add_appbar %}
-      appBar: AppBar(
-        title: Text('{{ appbar_title }}'),
-        {% if options.appbar_bg_color %}
-        backgroundColor: const Color({{ options.appbar_bg_color }}),
-        {% endif %}
-      ),
-      {% endif %}
-      {% if options.scaffold_bg_color %}
-      backgroundColor: const Color({{ options.scaffold_bg_color }}),
-      {% endif %}
+      backgroundColor: Colors.white,
       body: SafeArea(
-        child: Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-        child: content,
+        child: SingleChildScrollView(
+          child: body,
         ),
       ),
     );
-    {% else %}
-    return content;
-    {% endif %}
   }
-
-  {% if handlers_code %}
-  {{ handlers_code }}
+}
   {% endif %}
-{% endif %}
-{% endraw %}
+
+{{ handlers_code }}

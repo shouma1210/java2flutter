@@ -46,10 +46,11 @@ def _find_handler(logic_map: dict, xml_id: str):
 
 def _text_style(attrs: dict, resolver: ResourceResolver | None) -> str:
 
-    parts = []
+    parts: list[str] = []
 
-    size_raw = attrs.get("textSize")
+    size_raw = attrs.get("textSize") or attrs.get("android:textSize")
     if size_raw:
+        size_px = None
         if resolver:
             resolved = resolver.resolve(size_raw) or size_raw
             try:
@@ -57,15 +58,14 @@ def _text_style(attrs: dict, resolver: ResourceResolver | None) -> str:
             except Exception:
                 size_px = None
         else:
-
             try:
                 size_px = ResourceResolver.parse_dimen_to_px(size_raw)
             except Exception:
                 size_px = None
-            if size_px:
-                parts.append(f"fontSize: {float(size_px):.1f}")
+        if size_px:
+            parts.append(f"fontSize: {float(size_px):.1f}")
 
-    color_raw = attrs.get("textColor")
+    color_raw = attrs.get("textColor") or attrs.get("android:textColor")
     if color_raw:
         if resolver:
             resolved_c = resolver.resolve(color_raw) or color_raw
@@ -74,6 +74,14 @@ def _text_style(attrs: dict, resolver: ResourceResolver | None) -> str:
         color_hex = ResourceResolver.android_color_to_flutter(resolved_c)
         if color_hex:
             parts.append(f"color: Color({color_hex})")
+
+    style_raw = attrs.get("textStyle") or attrs.get("android:textStyle")
+    if style_raw:
+        style_norm = str(style_raw).lower()
+        if "bold" in style_norm:
+            parts.append("fontWeight: FontWeight.bold")
+        if "italic" in style_norm:
+            parts.append("fontStyle: FontStyle.italic")
 
     if not parts:
         return ""
@@ -87,6 +95,7 @@ def translate_view(node: dict, resolver, logic_map=None, fragments_by_id=None, l
     t = node.get("type") or ""
     attrs = node.get("attrs") or {}
     children = node.get("children") or []
+    view_name = t.split(".")[-1] if t else ""
 
     CARDVIEW_TYPES = {
         "androidx.cardview.widget.CardView",
@@ -212,13 +221,12 @@ def translate_view(node: dict, resolver, logic_map=None, fragments_by_id=None, l
         else:
 
             if text:
-                body = f'RadioListTile(value: "{xml_id}", groupValue: null, onChanged: (value) {{ setState(() {{ /* TODO: update state */ }}); }}, title: Text("{escape_dart(text)}"))'
+                body = f'RadioListTile(value: "{xml_id}", groupValue: null, onChanged: (value) {{}}, title: Text("{escape_dart(text)}"))'
             else:
-                body = f'Radio(value: "{xml_id}", groupValue: null, onChanged: (value) {{ setState(() {{ /* TODO: update state */ }}); }})'
+                body = f'Radio(value: "{xml_id}", groupValue: null, onChanged: (value) {{}},)'
         
         if handler_name:
-            body = body.replace('onChanged: (value) { setState(() { /* TODO: update state */ }); }', 
-                              f'onChanged: (value) {{ setState(() {{ /* TODO: update state */ }}); {handler_name}(context); }}')
+            body = body.replace('onChanged: (value) {},', f'onChanged: (value) => {handler_name}(context),')
         
         return apply_layout_modifiers(body, attrs, resolver)
 
@@ -229,20 +237,7 @@ def translate_view(node: dict, resolver, logic_map=None, fragments_by_id=None, l
         label = resolver.resolve(label_raw) if resolver else label_raw
         label = label or "Button"
 
-        text_color_raw = attrs.get("textColor")
-        text_style_part = ""
-        if text_color_raw:
-            if resolver:
-                resolved_tc = resolver.resolve(text_color_raw) or text_color_raw
-            else:
-                resolved_tc = text_color_raw
-            text_color_hex = ResourceResolver.android_color_to_flutter(resolved_tc)
-            if text_color_hex:
-                text_style_part = (
-                    f", style: TextStyle(color: Color({text_color_hex}))"
-                )
-
-        label_widget = f'Text("{escape_dart(label)}"{text_style_part})'
+        label_widget = f'Text("{escape_dart(label)}"{_text_style(attrs, resolver)})'
 
         bg_raw = attrs.get("backgroundTint") or attrs.get("background")
         style_part = ""
@@ -307,7 +302,16 @@ def translate_view(node: dict, resolver, logic_map=None, fragments_by_id=None, l
         if not text and xml_id:
             text = f"[{xml_id}]"
 
-        body = f'Text("{escape_dart(text)}"{_text_style(attrs, resolver)})'
+        gravity = (attrs.get("gravity") or "").lower()
+        align_part = ""
+        if "center" in gravity:
+            align_part = ", textAlign: TextAlign.center"
+        elif "right" in gravity or "end" in gravity:
+            align_part = ", textAlign: TextAlign.right"
+        elif "left" in gravity or "start" in gravity:
+            align_part = ", textAlign: TextAlign.left"
+
+        body = f'Text("{escape_dart(text)}"{align_part}{_text_style(attrs, resolver)})'
 
         xml_onclick = attrs.get("onClick") or attrs.get("android:onClick")
         if handler_name:
@@ -412,14 +416,12 @@ def translate_view(node: dict, resolver, logic_map=None, fragments_by_id=None, l
         checked = (attrs.get("checked") or "").lower() == "true"
 
         if text:
-            body = f'Switch(value: {str(checked).lower()}, onChanged: (value) {{ setState(() {{ /* TODO: update state */ }}); }}, title: Text("{escape_dart(text)}"))'
+            body = f'Switch(value: {str(checked).lower()}, onChanged: (value) {{}},)'
         else:
-            body = f'Switch(value: {str(checked).lower()}, onChanged: (value) {{ setState(() {{ /* TODO: update state */ }}); }})'
+            body = f'Switch(value: {str(checked).lower()}, onChanged: (value) {{}},)'
 
         if handler_name:
-
-            body = body.replace('onChanged: (value) { setState(() { /* TODO: update state */ }); }', 
-                              f'onChanged: (value) {{ setState(() {{ /* TODO: update state */ }}); {handler_name}(context); }}')
+            body = body.replace('onChanged: (value) {},', f'onChanged: (value) => {handler_name}(context),')
         
         return apply_layout_modifiers(body, attrs, resolver)
 
@@ -427,11 +429,10 @@ def translate_view(node: dict, resolver, logic_map=None, fragments_by_id=None, l
         xml_id = _id_base(attrs.get("id", ""))
         handler_name = _find_handler(logic_map, xml_id)
 
-        body = 'DropdownButtonFormField<String>(value: null, items: [DropdownMenuItem(value: "item1", child: Text("Item 1")), DropdownMenuItem(value: "item2", child: Text("Item 2"))], onChanged: (value) { /* TODO: update state */ })'
+        body = 'DropdownButtonFormField<String>(value: null, items: [DropdownMenuItem(value: "item1", child: Text("Item 1")), DropdownMenuItem(value: "item2", child: Text("Item 2"))], onChanged: null)'
         
         if handler_name:
-            body = body.replace('onChanged: (value) { /* TODO: update state */ }', 
-                              f'onChanged: (value) {{ /* TODO: update state */ {handler_name}(context); }}')
+            body = body.replace('onChanged: null', f'onChanged: (value) => {handler_name}(context)')
         
         return apply_layout_modifiers(body, attrs, resolver)
 
@@ -446,13 +447,12 @@ def translate_view(node: dict, resolver, logic_map=None, fragments_by_id=None, l
         checked = (attrs.get("checked") or "").lower() == "true"
         
         if text:
-            body = f'CheckboxListTile(value: {str(checked).lower()}, onChanged: (value) {{ /* TODO: update state */ }}, title: Text("{escape_dart(text)}"))'
+            body = f'CheckboxListTile(value: {str(checked).lower()}, onChanged: null, title: Text("{escape_dart(text)}"))'
         else:
-            body = f'Checkbox(value: {str(checked).lower()}, onChanged: (value) {{ /* TODO: update state */ }})'
+            body = f'Checkbox(value: {str(checked).lower()}, onChanged: null)'
         
         if handler_name:
-            body = body.replace('onChanged: (value) { setState(() { /* TODO: update state */ }); }', 
-                              f'onChanged: (value) {{ setState(() {{ /* TODO: update state */ }}); {handler_name}(context); }}')
+            body = body.replace('onChanged: null', f'onChanged: (value) => {handler_name}(context)')
         
         return apply_layout_modifiers(body, attrs, resolver)
 
@@ -462,57 +462,225 @@ def translate_view(node: dict, resolver, logic_map=None, fragments_by_id=None, l
         
         checked = (attrs.get("checked") or "").lower() == "true"
         
-        body = f'Switch(value: {str(checked).lower()}, onChanged: (value) {{ /* TODO: update state */ }})'
+        body = f'Switch(value: {str(checked).lower()}, onChanged: null)'
         
         if handler_name:
-            body = body.replace('onChanged: (value) { /* TODO: update state */ }', 
-                              f'onChanged: (value) {{ /* TODO: update state */ {handler_name}(context); }}')
+            body = body.replace('onChanged: null', f'onChanged: (value) => {handler_name}(context)')
         
+        return apply_layout_modifiers(body, attrs, resolver)
+
+    if view_name == "ProgressBar" or view_name.endswith("ProgressBar"):
+
+        style_raw = (attrs.get("style") or "").lower()
+        is_horizontal = "horizontal" in style_raw
+        indeterminate = (attrs.get("indeterminate") or "").lower() == "true"
+        progress = attrs.get("progress")
+        max_raw = attrs.get("max") or "100"
+
+        parts = []
+        if not indeterminate and progress is not None:
+            parts.append(f"value: {progress} / {max_raw}")
+
+        widget = "LinearProgressIndicator" if is_horizontal else "CircularProgressIndicator"
+        if parts:
+            body = f"{widget}({', '.join(parts)})"
+        else:
+            body = f"{widget}()"
+
+        return apply_layout_modifiers(body, attrs, resolver)
+
+    if view_name == "SeekBar" or view_name.endswith("SeekBar"):
+
+        max_raw = attrs.get("max") or "100"
+        progress = attrs.get("progress") or "0"
+
+        body = (
+            "Slider("
+            f"value: {progress}.toDouble(), "
+            "min: 0.0, "
+            f"max: {max_raw}.toDouble(), "
+            "onChanged: null,"
+            ")"
+        )
+
+        return apply_layout_modifiers(body, attrs, resolver)
+
+    if view_name == "WebView":
+
+        body = (
+            "Container("
+            "color: Colors.grey.shade200, "
+            "child: Center(child: Icon(Icons.public, size: 48, color: Colors.blueGrey)),"
+            ")"
+        )
+
+        return apply_layout_modifiers(body, attrs, resolver)
+
+    if view_name == "VideoView":
+
+        body = (
+            "AspectRatio("
+            "aspectRatio: 16 / 9, "
+            "child: Container("
+            "color: Colors.black, "
+            "child: Center(child: Icon(Icons.play_circle_filled, size: 64, color: Colors.white)),"
+            "),"
+            ")"
+        )
+
+        return apply_layout_modifiers(body, attrs, resolver)
+
+    if view_name == "MapView":
+
+        body = (
+            "Container("
+            "color: Colors.blueGrey.shade100, "
+            "child: Center(child: Icon(Icons.map, size: 48, color: Colors.blueGrey)),"
+            ")"
+        )
+
+        return apply_layout_modifiers(body, attrs, resolver)
+
+    if view_name.endswith("Toolbar") or view_name == "Toolbar":
+
+        title_raw = attrs.get("title") or ""
+        title = resolver.resolve(title_raw) if resolver else title_raw
+        title = title or ""
+
+        body = (
+            "Container("
+            "height: 56.0, "
+            "color: Colors.blue, "
+            f"child: Row(children: const [SizedBox(width: 16), Icon(Icons.arrow_back, color: Colors.white), SizedBox(width: 16), Expanded(child: Text('{escape_dart(title)}', style: TextStyle(color: Colors.white, fontSize: 18)))]),"
+            ")"
+        )
+
+        return apply_layout_modifiers(body, attrs, resolver)
+
+    if view_name.endswith("BottomNavigationView") or view_name == "BottomNavigationView":
+
+        body = (
+            "Container("
+            "height: 56.0, "
+            "color: Colors.white, "
+            "child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: const ["
+            "Icon(Icons.home), Icon(Icons.search), Icon(Icons.person)"
+            "]),"
+            ")"
+        )
+
+        return apply_layout_modifiers(body, attrs, resolver)
+
+    if view_name.endswith("TabLayout") or view_name == "TabLayout":
+
+        tab_count_raw = attrs.get("tabMode") or ""
+
+        body = (
+            "Container("
+            "height: 48.0, "
+            "child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: const ["
+            "Text('Tab 1'), Text('Tab 2'), Text('Tab 3')"
+            "]),"
+            ")"
+        )
+
+        return apply_layout_modifiers(body, attrs, resolver)
+
+    if view_name.endswith("ViewPager") or view_name == "ViewPager":
+
+        body = (
+            "PageView("
+            "children: const ["
+            "Center(child: Text('Page 1')), "
+            "Center(child: Text('Page 2')), "
+            "Center(child: Text('Page 3'))"
+            "],"
+            ")"
+        )
+
+        return apply_layout_modifiers(body, attrs, resolver)
+
+    if view_name.endswith("TextInputLayout") or view_name == "TextInputLayout":
+
+        hint_raw = attrs.get("hint") or attrs.get("android:hint") or ""
+        hint = resolver.resolve(hint_raw) if resolver else hint_raw
+        hint = hint or ""
+
+        edit_child = None
+        for ch in children:
+            child_type = ch.get("type") or ""
+            if child_type == "EditText" or child_type.endswith("EditText"):
+                edit_child = ch
+                break
+
+        if edit_child is not None:
+            from .layout_rules import translate_node
+            body = translate_node(
+                edit_child,
+                resolver,
+                logic_map=logic_map,
+                fragments_by_id=fragments_by_id,
+                layout_dir=layout_dir,
+                values_dir=values_dir,
+            )
+        else:
+            dec = f'InputDecoration(labelText: "{escape_dart(hint)}", border: OutlineInputBorder())' if hint else 'InputDecoration(border: OutlineInputBorder())'
+            body = f"TextField(decoration: {dec})"
+
+        return apply_layout_modifiers(body, attrs, resolver)
+
+    if view_name.endswith("RecyclerView") or view_name == "RecyclerView":
+
+        body = (
+            "ListView.separated("
+            "shrinkWrap: true, "
+            "physics: NeverScrollableScrollPhysics(), "
+            "itemCount: 20, "
+            "itemBuilder: (context, index) => ListTile(title: Text('Item ${index + 1}')), "
+            "separatorBuilder: (context, index) => const Divider(height: 1),"
+            ")"
+        )
+
         return apply_layout_modifiers(body, attrs, resolver)
 
     if t == "View":
 
         bg_raw = attrs.get("background")
-        height_raw = (attrs.get("layout_height") or attrs.get("height") or "1").lower()
-        width_raw = (attrs.get("layout_width") or attrs.get("width") or "match_parent").lower()
 
-        height_val = "1"
-        if height_raw not in ("match_parent", "fill_parent"):
-            if "dp" in height_raw or "dip" in height_raw:
-                try:
-                    height_val = height_raw.replace("dp", "").replace("dip", "").strip()
-                except:
-                    pass
-
-        width_val = "1"
-        if width_raw not in ("match_parent", "fill_parent"):
-            if "dp" in width_raw or "dip" in width_raw:
-                try:
-                    width_val = width_raw.replace("dp", "").replace("dip", "").strip()
-                except:
-                    pass
-
-        attrs_copy = attrs.copy()
-        if "background" in attrs_copy:
-            del attrs_copy["background"]
-
-        if "layout_width" in attrs_copy:
-            del attrs_copy["layout_width"]
-        if "layout_height" in attrs_copy:
-            del attrs_copy["layout_height"]
-        
         if bg_raw and resolver:
+            height_raw = (attrs.get("layout_height") or attrs.get("height") or "wrap_content").lower()
+            width_raw = (attrs.get("layout_width") or attrs.get("width") or "match_parent").lower()
+
+            height_val = "1"
+            if height_raw not in ("match_parent", "fill_parent"):
+                if "dp" in height_raw or "dip" in height_raw:
+                    try:
+                        height_val = height_raw.replace("dp", "").replace("dip", "").strip()
+                    except Exception:
+                        pass
+
+            width_val = "double.infinity" if width_raw in ("match_parent", "fill_parent") else "1"
+            if width_raw not in ("match_parent", "fill_parent"):
+                if "dp" in width_raw or "dip" in width_raw:
+                    try:
+                        width_val = width_raw.replace("dp", "").replace("dip", "").strip()
+                    except Exception:
+                        pass
+
             resolved_bg = resolver.resolve(bg_raw) or bg_raw
             color_hex = ResourceResolver.android_color_to_flutter(resolved_bg)
             if color_hex:
-
                 body = f'Container(height: {height_val}, width: {width_val}, color: Color({color_hex}))'
             else:
-                body = f'Container(height: {height_val}, width: {width_val}, color: Colors.grey)'
-        else:
-            body = f'Container(height: {height_val}, width: {width_val}, color: Colors.grey)'
-        
-        return apply_layout_modifiers(body, attrs_copy, resolver)
+                body = f'SizedBox(height: {height_val}, width: {width_val})'
+
+            attrs_copy = attrs.copy()
+            attrs_copy.pop("background", None)
+            attrs_copy.pop("layout_width", None)
+            attrs_copy.pop("layout_height", None)
+            return apply_layout_modifiers(body, attrs_copy, resolver)
+
+        return "SizedBox.shrink()"
 
     if t.endswith("ImageView") or t == "AppCompatImageView":
 
@@ -530,7 +698,7 @@ def translate_view(node: dict, resolver, logic_map=None, fragments_by_id=None, l
                         body = f"Container(decoration: {decoration_code})"
                     else:
 
-                        body = f"/* TODO: ImageView drawable XML {src_raw} - parse shape drawable to BoxDecoration */ Container(width: 180, height: 180, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(8)), child: Icon(Icons.image, size: 80, color: Colors.grey.shade600))"
+                        body = "Container(width: 180, height: 180, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(8)), child: Icon(Icons.image, size: 80, color: Colors.grey.shade600))"
                 else:
 
                     asset_path = get_asset_path_from_drawable(drawable_path)
@@ -681,14 +849,12 @@ def translate_view(node: dict, resolver, logic_map=None, fragments_by_id=None, l
                     dart_children.append(child_code)
             
             if len(dart_children) == 1:
-                child_code = dart_children[0]
+                body = dart_children[0]
             elif len(dart_children) > 1:
                 children_joined = ",\n".join(dart_children)
-                child_code = f"Column(children: [\n{indent(children_joined)}\n])"
+                body = f"Column(children: [\n{indent(children_joined)}\n])"
             else:
-                child_code = "SizedBox.shrink()"
-            
-            body = f"Container(decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade600)), child: {child_code})"
+                body = "SizedBox.shrink()"
     else:
 
         custom_view_mapping = {
@@ -709,13 +875,11 @@ def translate_view(node: dict, resolver, logic_map=None, fragments_by_id=None, l
                     dart_children.append(child_code)
             
             if len(dart_children) == 1:
-                child_code = dart_children[0]
+                body = dart_children[0]
             elif len(dart_children) > 1:
                 children_joined = ",\n".join(dart_children)
-                child_code = f"Column(children: [\n{indent(children_joined)}\n])"
+                body = f"Column(children: [\n{indent(children_joined)}\n])"
             else:
-                child_code = "SizedBox.shrink()"
-            
-            body = f"Container(decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey.shade600)), child: {child_code})"
+                body = "SizedBox.shrink()"
     
     return apply_layout_modifiers(body, attrs, resolver)

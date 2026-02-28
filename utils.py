@@ -302,7 +302,7 @@ def apply_layout_modifiers(
                         f")"
                     )
                 else:
-                    widget = f"/* TODO: background image {bg_raw} */ {widget}"
+                    widget = widget
         else:
           
             if resolver:
@@ -331,8 +331,7 @@ def apply_layout_modifiers(
                 else:
                     widget = f"Container(color: Color({color_hex}), child: {widget})"
             else:
-
-                widget = widget.replace(f"/* TODO: background {bg_raw} */ ", "")
+                widget = widget
 
   
     padding_ei = _edge_insets_from_attrs(attrs, resolver, "padding")
