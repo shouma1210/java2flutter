@@ -5,7 +5,7 @@ import os
 from typing import Any, Dict, Optional
 from lxml import etree
 
-from .parser.resource_resolver import ResourceResolver
+from parser.resource_resolver import ResourceResolver
 
 
 def indent(code: str, spaces: int = 2) -> str:
@@ -302,7 +302,7 @@ def apply_layout_modifiers(
                         f")"
                     )
                 else:
-                    widget = widget
+                    widget = f"/* TODO: background image {bg_raw} */ {widget}"
         else:
           
             if resolver:
@@ -331,7 +331,8 @@ def apply_layout_modifiers(
                 else:
                     widget = f"Container(color: Color({color_hex}), child: {widget})"
             else:
-                widget = widget
+
+                widget = widget.replace(f"/* TODO: background {bg_raw} */ ", "")
 
   
     padding_ei = _edge_insets_from_attrs(attrs, resolver, "padding")
