@@ -513,6 +513,10 @@ def generate_dart_code(
     class_name: str,
 ) -> None:
     xml_ir, resolver = parse_layout_xml(xml_path, values_dir)
+
+    if resolver is not None and java_root:
+        setattr(resolver, "_java_root", java_root)
+
     layout_root = _get_layout_root(xml_ir)
 
     bg_map: Dict[str, Dict[str, str]] = {}
